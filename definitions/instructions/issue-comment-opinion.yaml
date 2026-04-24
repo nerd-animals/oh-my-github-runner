@@ -1,0 +1,19 @@
+id: issue-comment-opinion
+revision: 1
+source_kind: issue
+mode: observe
+context:
+  include_issue_body: true
+  include_issue_comments: true
+permissions:
+  code_read: true
+  code_write: false
+  git_push: false
+  pr_create: false
+  pr_update: false
+  comment_write: true
+github_actions:
+  - issue_comment
+execution:
+  agent: codex-cli
+  timeout_sec: 1800

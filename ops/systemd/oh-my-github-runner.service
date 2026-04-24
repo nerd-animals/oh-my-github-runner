@@ -1,0 +1,16 @@
+[Unit]
+Description=oh-my-github-runner daemon
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/oh-my-github-runner/current
+EnvironmentFile=/etc/oh-my-github-runner/runner.env
+ExecStart=/usr/bin/node /opt/oh-my-github-runner/current/dist/src/index.js
+Restart=always
+RestartSec=5
+User=runner
+Group=runner
+
+[Install]
+WantedBy=multi-user.target

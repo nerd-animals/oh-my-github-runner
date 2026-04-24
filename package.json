@@ -1,0 +1,21 @@
+{
+  "name": "oh-my-github-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "compile": "tsc -p tsconfig.runtime.json",
+    "test": "tsc -p tsconfig.test.json && node tools/run-tests.mjs",
+    "enqueue": "npm run compile && node dist/src/cli/main.js enqueue",
+    "daemon": "npm run compile && node dist/src/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  }
+}

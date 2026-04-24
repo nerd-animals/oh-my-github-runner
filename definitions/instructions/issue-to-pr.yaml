@@ -1,0 +1,22 @@
+id: issue-to-pr
+revision: 1
+source_kind: issue
+mode: mutate
+context:
+  include_issue_body: true
+  include_issue_comments: true
+  include_linked_prs: true
+permissions:
+  code_read: true
+  code_write: true
+  git_push: true
+  pr_create: true
+  pr_update: true
+  comment_write: true
+github_actions:
+  - branch_push
+  - pr_create
+  - issue_comment
+execution:
+  agent: codex-cli
+  timeout_sec: 3600
