@@ -131,15 +131,14 @@ login throughout the sudoers file and the GitHub Variable.
 
 ### One-time GitHub setup
 
-Repository → Settings:
+Repository → Settings → Secrets and variables → Actions → Secrets:
 
-- **Secrets**:
-  - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
-    OAuth clients (scope `tag:gh-deploy`)
-- **Variables**:
-  - `SSH_HOST` — VM's tailnet hostname (short or MagicDNS form, e.g.
-    `github-runner` or `github-runner.tail-xxxx.ts.net`)
-  - `SSH_USER` — typically `ubuntu`
+- `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
+  OAuth clients (scope `tag:gh-deploy`)
+
+Hostname (`ubuntu@github-runner`) is hardcoded in
+`.github/workflows/deploy.yml`; if the VM is renamed or the SSH login
+changes, edit the workflow.
 
 Tailnet ACL must allow `tag:gh-deploy` → `tag:server` over SSH and
 permit the chosen login user under Tailscale SSH (`autogroup:nonroot` or

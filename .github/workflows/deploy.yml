@@ -33,12 +33,9 @@ jobs:
           tags:            tag:gh-deploy
 
       - name: Run deploy script on VM
-        env:
-          SSH_HOST: ${{ vars.SSH_HOST }}
-          SSH_USER: ${{ vars.SSH_USER }}
         run: |
           ssh -o StrictHostKeyChecking=accept-new \
               -o BatchMode=yes \
               -o ConnectTimeout=10 \
-              "$SSH_USER@$SSH_HOST" \
+              ubuntu@github-runner \
               'bash /opt/oh-my-github-runner/current/ops/scripts/deploy.sh'
