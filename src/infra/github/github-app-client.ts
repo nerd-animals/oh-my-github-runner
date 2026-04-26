@@ -14,11 +14,13 @@ import type {
   IssueLabelsInfo,
   PullRequestStateInfo,
 } from "./github-client.js";
+import { InstallationTokenCache } from "./installation-token-cache.js";
 
 export interface GitHubAppClientOptions {
   appId: string;
   privateKeyPath: string;
   apiBaseUrl?: string;
+  installationTokenCache?: InstallationTokenCache;
 }
 
 interface GitHubIssueResponse {
@@ -73,15 +75,19 @@ interface GitHubInstallationResponse {
 
 interface GitHubInstallationTokenResponse {
   token: string;
+  expires_at: string;
 }
 
 export class GitHubAppClient implements GitHubClient {
   private readonly apiBaseUrl: string;
   private readonly privateKey: string;
+  private readonly installationTokenCache: InstallationTokenCache;
 
   constructor(private readonly options: GitHubAppClientOptions) {
     this.apiBaseUrl = options.apiBaseUrl ?? "https://api.github.com";
     this.privateKey = readFileSync(options.privateKeyPath, "utf8");
+    this.installationTokenCache =
+      options.installationTokenCache ?? new InstallationTokenCache();
   }
 
   async getSourceContext(
@@ -352,19 +358,40 @@ export class GitHubAppClient implements GitHubClient {
   }
 
   private async getInstallationToken(repo: RepoRef): Promise<string> {
-    const jwt = this.createAppJwt();
-    const installation = await this.appRequest<GitHubInstallationResponse>(
-      "GET",
-      `/repos/${repo.owner}/${repo.name}/installation`,
-      jwt,
-    );
-    const token = await this.appRequest<GitHubInstallationTokenResponse>(
-      "POST",
-      `/app/installations/${installation.id}/access_tokens`,
-      jwt,
+    const repoKey = `${repo.owner}/${repo.name}`;
+    let installationId = this.installationTokenCache.getInstallationId(repoKey);
+
+    if (installationId === undefined) {
+      const installation = await this.appRequest<GitHubInstallationResponse>(
+        "GET",
+        `/repos/${repo.owner}/${repo.name}/installation`,
+        this.createAppJwt(),
+      );
+      installationId = String(installation.id);
+      this.installationTokenCache.setInstallationId(repoKey, installationId);
+    }
+
+    const cached = this.installationTokenCache.getToken(installationId);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const tokenResponse =
+      await this.appRequest<GitHubInstallationTokenResponse>(
+        "POST",
+        `/app/installations/${installationId}/access_tokens`,
+        this.createAppJwt(),
+      );
+
+    const expiresAt = Date.parse(tokenResponse.expires_at);
+    this.installationTokenCache.setToken(
+      installationId,
+      tokenResponse.token,
+      Number.isNaN(expiresAt) ? Date.now() + 60_000 : expiresAt,
     );
 
-    return token.token;
+    return tokenResponse.token;
   }
 
   private async appRequest<T>(
