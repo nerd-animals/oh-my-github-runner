@@ -1,0 +1,13 @@
+# Example cloudflared ingress config for oh-my-github-runner.
+# Save as /etc/cloudflared/config.yml on the VM.
+#
+# Replace `<TUNNEL_UUID>` with your tunnel id (run `cloudflared tunnel list`).
+# Replace the hostname if you use a different domain.
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: oh-my-github-runner.darakbox.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404

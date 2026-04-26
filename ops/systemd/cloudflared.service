@@ -1,0 +1,14 @@
+[Unit]
+Description=cloudflared tunnel for oh-my-github-runner
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
+Restart=always
+RestartSec=5
+User=cloudflared
+Group=cloudflared
+
+[Install]
+WantedBy=multi-user.target
