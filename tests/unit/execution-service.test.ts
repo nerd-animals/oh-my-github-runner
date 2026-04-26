@@ -130,6 +130,19 @@ describe("ExecutionService", () => {
           return issueContext;
         },
         getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
@@ -195,6 +208,19 @@ describe("ExecutionService", () => {
       githubClient: {
         getSourceContext: async () => issueContext,
         getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
         postIssueComment: async (_repo, _issueNumber, body) => {
           postedComments.push(body);
         },
@@ -260,6 +286,19 @@ describe("ExecutionService", () => {
       githubClient: {
         getSourceContext: async () => pullRequestContext,
         getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
@@ -323,6 +362,19 @@ describe("ExecutionService", () => {
       githubClient: {
         getSourceContext: async () => issueContext,
         getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
         postIssueComment: async (_repo, _issueNumber, body) => {
           postedComments.push(body);
         },
@@ -394,6 +446,19 @@ describe("ExecutionService", () => {
       githubClient: {
         getSourceContext: async () => issueContext,
         getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,

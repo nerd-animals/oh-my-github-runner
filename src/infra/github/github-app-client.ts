@@ -8,7 +8,12 @@ import type {
 } from "../../domain/github.js";
 import type { InstructionContext } from "../../domain/instruction.js";
 import type { RepoRef, SourceRef } from "../../domain/task.js";
-import type { GitHubClient } from "./github-client.js";
+import type {
+  AppBotInfo,
+  GitHubClient,
+  IssueLabelsInfo,
+  PullRequestStateInfo,
+} from "./github-client.js";
 
 export interface GitHubAppClientOptions {
   appId: string;
@@ -33,12 +38,29 @@ interface GitHubPullRequestResponse {
   title: string;
   body: string | null;
   html_url: string;
+  state: "open" | "closed";
+  merged?: boolean;
   head: {
     ref: string;
+    repo: { full_name: string } | null;
   };
   base: {
     ref: string;
+    repo: { full_name: string } | null;
   };
+}
+
+interface GitHubIssueLabelsResponse {
+  labels: Array<string | { name: string }>;
+}
+
+interface GitHubAppResponse {
+  slug: string;
+}
+
+interface GitHubUserResponse {
+  id: number;
+  login: string;
 }
 
 interface GitHubRepositoryResponse {
@@ -126,6 +148,57 @@ export class GitHubAppClient implements GitHubClient {
       baseRef: pullRequest.base.ref,
       headRef: pullRequest.head.ref,
     };
+  }
+
+  async getPullRequestState(
+    repo: RepoRef,
+    pullRequestNumber: number,
+  ): Promise<PullRequestStateInfo> {
+    const pr = await this.installationRequest<GitHubPullRequestResponse>(
+      repo,
+      "GET",
+      `/repos/${repo.owner}/${repo.name}/pulls/${pullRequestNumber}`,
+    );
+
+    const baseFullName = `${repo.owner}/${repo.name}`;
+    const headFullName = pr.head.repo?.full_name ?? null;
+
+    return {
+      number: pr.number,
+      isFork: headFullName !== null && headFullName !== baseFullName,
+      state: pr.state,
+      merged: pr.merged ?? false,
+      headRef: pr.head.repo === null ? null : pr.head.ref,
+    };
+  }
+
+  async getIssueLabels(
+    repo: RepoRef,
+    issueNumber: number,
+  ): Promise<IssueLabelsInfo> {
+    const response = await this.installationRequest<GitHubIssueLabelsResponse>(
+      repo,
+      "GET",
+      `/repos/${repo.owner}/${repo.name}/issues/${issueNumber}`,
+    );
+    const labels = response.labels.map((label) =>
+      typeof label === "string" ? label : label.name,
+    );
+
+    return { labels };
+  }
+
+  async getAppBotInfo(): Promise<AppBotInfo> {
+    const jwt = this.createAppJwt();
+    const app = await this.appRequest<GitHubAppResponse>("GET", "/app", jwt);
+    const login = `${app.slug}[bot]`;
+    const user = await this.appRequest<GitHubUserResponse>(
+      "GET",
+      `/users/${encodeURIComponent(login)}`,
+      jwt,
+    );
+
+    return { id: user.id, login: user.login, slug: app.slug };
   }
 
   async getDefaultBranch(repo: RepoRef): Promise<string> {

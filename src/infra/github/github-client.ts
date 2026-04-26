@@ -6,6 +6,24 @@ import type {
 import type { InstructionContext } from "../../domain/instruction.js";
 import type { RepoRef, SourceRef } from "../../domain/task.js";
 
+export interface PullRequestStateInfo {
+  number: number;
+  isFork: boolean;
+  state: "open" | "closed";
+  merged: boolean;
+  headRef: string | null;
+}
+
+export interface AppBotInfo {
+  id: number;
+  login: string;
+  slug: string;
+}
+
+export interface IssueLabelsInfo {
+  labels: string[];
+}
+
 export interface GitHubClient {
   getSourceContext(
     repo: RepoRef,
@@ -13,6 +31,15 @@ export interface GitHubClient {
     instructionContext: InstructionContext,
   ): Promise<GitHubSourceContext>;
   getDefaultBranch(repo: RepoRef): Promise<string>;
+  getPullRequestState(
+    repo: RepoRef,
+    pullRequestNumber: number,
+  ): Promise<PullRequestStateInfo>;
+  getIssueLabels(
+    repo: RepoRef,
+    issueNumber: number,
+  ): Promise<IssueLabelsInfo>;
+  getAppBotInfo(): Promise<AppBotInfo>;
   postIssueComment(repo: RepoRef, issueNumber: number, body: string): Promise<void>;
   postPullRequestComment(
     repo: RepoRef,
