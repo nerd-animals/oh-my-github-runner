@@ -30,6 +30,10 @@ export class FileQueueStore implements QueueStore {
       source: input.source,
       instructionId: input.instructionId,
       agent: input.agent,
+      ...(input.additionalInstructions !== undefined &&
+      input.additionalInstructions.length > 0
+        ? { additionalInstructions: input.additionalInstructions }
+        : {}),
       status: "queued",
       priority: input.priority ?? "normal",
       requestedBy: input.requestedBy,

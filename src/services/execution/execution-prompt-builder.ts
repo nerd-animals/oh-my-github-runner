@@ -28,6 +28,7 @@ export class ExecutionPromptBuilder {
         this.appendCommentsSection(lines, context.comments);
       }
 
+      this.appendAdditionalInstructions(lines, task.additionalInstructions);
       return lines.join("\n");
     }
 
@@ -44,7 +45,19 @@ export class ExecutionPromptBuilder {
     }
 
     lines.push("", `Base: ${context.baseRef}`, `Head: ${context.headRef}`);
+    this.appendAdditionalInstructions(lines, task.additionalInstructions);
     return lines.join("\n");
+  }
+
+  private appendAdditionalInstructions(
+    lines: string[],
+    additional: string | undefined,
+  ): void {
+    if (additional === undefined || additional.length === 0) {
+      return;
+    }
+
+    lines.push("", "User additional instructions:", additional);
   }
 
   private appendBodySection(lines: string[], body: string): void {

@@ -5,6 +5,7 @@ export interface QueueTaskInput {
   source: SourceRef;
   instructionId: string;
   agent: string;
+  additionalInstructions?: string;
   requestedBy: string;
   priority?: TaskPriority;
 }

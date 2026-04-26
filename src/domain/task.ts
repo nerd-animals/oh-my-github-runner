@@ -20,6 +20,7 @@ export interface TaskRecord {
   instructionId: string;
   instructionRevision?: number;
   agent: string;
+  additionalInstructions?: string;
   status: TaskStatus;
   priority: TaskPriority;
   requestedBy: string;
