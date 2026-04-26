@@ -99,6 +99,80 @@ curl -i -X POST https://oh-my-github-runner.darakbox.com/webhook
 A 200 with body `ignored` to a webhook the runner cannot route also confirms
 end-to-end signing path.
 
+## Continuous deployment via GitHub Actions + Tailscale
+
+`push` to `main` triggers `.github/workflows/deploy.yml`, which connects
+to the tailnet, SSHes into the VM as the `deploy` user, and runs
+`ops/scripts/deploy.sh`. The script does a git fetch, no-ops if the head
+already matches `origin/main`, otherwise resets, reinstalls runtime
+dependencies, recompiles, and restarts the service. Failures abort the
+deploy without touching the running daemon.
+
+### One-time VM setup
+
+```sh
+# 1) deploy user with no shell-access password
+sudo useradd -m -s /bin/bash deploy
+sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+
+# 2) trust the workflow's SSH key
+sudo -u deploy tee /home/deploy/.ssh/authorized_keys >/dev/null <<'KEY'
+ssh-ed25519 AAAA... github-actions-deploy
+KEY
+sudo chmod 600 /home/deploy/.ssh/authorized_keys
+
+# 3) sudoers — deploy user can do exactly two things
+sudo install -m 440 /dev/stdin /etc/sudoers.d/oh-my-github-runner-deploy <<'SUDO'
+deploy ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
+deploy ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+SUDO
+sudo visudo -c   # syntax check; non-zero exit = revert above
+
+# 4) Tailscale on the VM, advertised with the right tag
+sudo tailscale up --ssh=false --advertise-tags=tag:runner
+```
+
+### One-time GitHub setup
+
+Repository → Settings:
+
+- **Secrets**:
+  - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
+    OAuth clients (scope `tag:ci`)
+  - `SSH_PRIVATE_KEY` — the `deploy` user's ed25519 private key
+    (`ssh-keygen -t ed25519`)
+- **Variables**:
+  - `SSH_HOST` — VM's MagicDNS name, e.g.
+    `github-runner.tail-xxxx.ts.net`
+  - `SSH_USER` — `deploy`
+
+Tailnet ACL (`tagOwners` + ACL rule):
+
+```jsonc
+{
+  "tagOwners": {
+    "tag:runner": ["autogroup:admin"],
+    "tag:ci":     ["autogroup:admin"]
+  },
+  "acls": [
+    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:runner:22"] }
+  ]
+}
+```
+
+### Verifying the deploy
+
+```sh
+# After pushing to main, watch the workflow run, then on the VM:
+journalctl -u oh-my-github-runner.service -n 50 -f
+git -C /opt/oh-my-github-runner/current log -1 --format='%h %s'
+```
+
+If the deploy script no-ops because the VM is already at the requested
+commit (e.g., a manual `git pull` ran first), the workflow logs
+`Already at <sha>; nothing to deploy.` and exits 0. The service is
+left untouched.
+
 ## Operational tips
 
 - Logs: `journalctl -u oh-my-github-runner.service -f`
@@ -107,3 +181,4 @@ end-to-end signing path.
 - Recovery from crash: `recoverRunningTasks` runs at startup and marks
   in-flight tasks as failed; orphaned workspaces are not cleaned automatically
   in v1
+- Manual deploy: `ssh deploy@<tailnet-host> 'sudo /opt/oh-my-github-runner/current/ops/scripts/deploy.sh'`
