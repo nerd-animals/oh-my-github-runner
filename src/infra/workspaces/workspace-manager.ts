@@ -8,6 +8,10 @@ export interface MutateWorkspaceHandle extends WorkspaceHandle {
   branchName: string;
 }
 
+export interface PushBranchOptions {
+  installationToken?: string;
+}
+
 export interface WorkspaceManager {
   prepareObserveWorkspace(
     task: TaskRecord,
@@ -26,6 +30,9 @@ export interface WorkspaceManager {
   ): Promise<MutateWorkspaceHandle>;
   hasChanges(workspace: WorkspaceHandle): Promise<boolean>;
   commitAll(workspace: MutateWorkspaceHandle, message: string): Promise<void>;
-  pushBranch(workspace: MutateWorkspaceHandle): Promise<void>;
+  pushBranch(
+    workspace: MutateWorkspaceHandle,
+    options?: PushBranchOptions,
+  ): Promise<void>;
   cleanupWorkspace(workspace: WorkspaceHandle): Promise<void>;
 }

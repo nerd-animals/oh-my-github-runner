@@ -167,6 +167,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
@@ -252,6 +253,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async (_repo, _issueNumber, body) => {
           postedComments.push(body);
         },
@@ -350,6 +352,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async (_repo, _number, body) => {
           postedComments.push(body);
         },
@@ -428,6 +431,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
@@ -511,6 +515,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async (_repo, _issueNumber, body) => {
           postedComments.push(body);
         },
@@ -602,6 +607,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
@@ -681,6 +687,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async (_repo, _number, body) => {
           prComments.push(body);
@@ -771,6 +778,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async (_repo, _number, body) => {
           prComments.push(body);
@@ -853,6 +861,7 @@ describe("ExecutionService", () => {
           login: "bot[bot]",
           slug: "bot",
         }),
+        getInstallationAccessToken: async () => "test-token",
         postIssueComment: async () => {},
         postPullRequestComment: async (_repo, _number, body) => {
           prComments.push(body);

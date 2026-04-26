@@ -2,8 +2,10 @@ import { access, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { RepoRef, TaskRecord } from "../../domain/task.js";
 import type { ProcessRunner } from "../platform/process-runner.js";
+import { maskSecrets } from "./secret-mask.js";
 import type {
   MutateWorkspaceHandle,
+  PushBranchOptions,
   WorkspaceHandle,
   WorkspaceManager,
 } from "./workspace-manager.js";
@@ -124,15 +126,28 @@ export class GitWorkspaceManager implements WorkspaceManager {
     ]);
   }
 
-  async pushBranch(workspace: MutateWorkspaceHandle): Promise<void> {
-    await this.runGit([
-      "-C",
-      workspace.workspacePath,
-      "push",
-      "-u",
-      "origin",
-      workspace.branchName,
-    ]);
+  async pushBranch(
+    workspace: MutateWorkspaceHandle,
+    options?: PushBranchOptions,
+  ): Promise<void> {
+    const args = ["-C", workspace.workspacePath];
+
+    if (
+      options?.installationToken !== undefined &&
+      options.installationToken.length > 0
+    ) {
+      const baseUrl = this.githubWebBaseUrl.replace(/\/+$/, "");
+      const credentials = Buffer.from(
+        `x-access-token:${options.installationToken}`,
+      ).toString("base64");
+      args.push(
+        "-c",
+        `http.${baseUrl}/.extraheader=AUTHORIZATION: Basic ${credentials}`,
+      );
+    }
+
+    args.push("push", "-u", "origin", workspace.branchName);
+    await this.runGit(args);
   }
 
   async cleanupWorkspace(workspace: WorkspaceHandle): Promise<void> {
@@ -186,7 +201,9 @@ export class GitWorkspaceManager implements WorkspaceManager {
     });
 
     if (result.exitCode !== 0) {
-      throw new Error(result.stderr || result.stdout || `git failed: ${args.join(" ")}`);
+      const raw =
+        result.stderr || result.stdout || `git failed: ${args.join(" ")}`;
+      throw new Error(maskSecrets(raw));
     }
 
     return result;

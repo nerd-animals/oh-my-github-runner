@@ -126,7 +126,13 @@ export class ExecutionService {
       );
 
       try {
-        await this.dependencies.workspaceManager.pushBranch(workspace);
+        const prImplementToken =
+          await this.dependencies.githubClient.getInstallationAccessToken(
+            input.task.repo,
+          );
+        await this.dependencies.workspaceManager.pushBranch(workspace, {
+          installationToken: prImplementToken,
+        });
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "git push failed";
@@ -265,7 +271,13 @@ export class ExecutionService {
         workspace,
         this.buildCommitMessage(input.task),
       );
-      await this.dependencies.workspaceManager.pushBranch(workspace);
+      const mutateToken =
+        await this.dependencies.githubClient.getInstallationAccessToken(
+          input.task.repo,
+        );
+      await this.dependencies.workspaceManager.pushBranch(workspace, {
+        installationToken: mutateToken,
+      });
 
       const prBody = this.withInstructionFooter(
         agentResult.stdout.trim(),

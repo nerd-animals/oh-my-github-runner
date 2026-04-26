@@ -40,6 +40,7 @@ export interface GitHubClient {
     issueNumber: number,
   ): Promise<IssueLabelsInfo>;
   getAppBotInfo(): Promise<AppBotInfo>;
+  getInstallationAccessToken(repo: RepoRef): Promise<string>;
   postIssueComment(repo: RepoRef, issueNumber: number, body: string): Promise<void>;
   postPullRequestComment(
     repo: RepoRef,

@@ -194,6 +194,10 @@ export class GitHubAppClient implements GitHubClient {
     return { labels };
   }
 
+  async getInstallationAccessToken(repo: RepoRef): Promise<string> {
+    return this.getInstallationToken(repo);
+  }
+
   async getAppBotInfo(): Promise<AppBotInfo> {
     const jwt = this.createAppJwt();
     const app = await this.appRequest<GitHubAppResponse>("GET", "/app", jwt);
