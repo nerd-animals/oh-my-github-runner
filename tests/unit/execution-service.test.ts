@@ -7,7 +7,7 @@ import type { TaskRecord } from "../../src/domain/task.js";
 import { ExecutionService } from "../../src/services/execution-service.js";
 
 const observeInstruction: InstructionDefinition = {
-  id: "issue-comment-opinion",
+  id: "issue-comment-reply",
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
@@ -25,13 +25,12 @@ const observeInstruction: InstructionDefinition = {
   },
   githubActions: ["issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 1800,
   },
 };
 
 const mutateInstruction: InstructionDefinition = {
-  id: "issue-to-pr",
+  id: "issue-implement",
   revision: 1,
   sourceKind: "issue",
   mode: "mutate",
@@ -50,7 +49,6 @@ const mutateInstruction: InstructionDefinition = {
   },
   githubActions: ["branch_push", "pr_create", "issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 3600,
   },
 };
@@ -75,7 +73,6 @@ const pullRequestObserveInstruction: InstructionDefinition = {
   },
   githubActions: ["pull_request_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 1800,
   },
 };
@@ -176,7 +173,7 @@ describe("ExecutionService", () => {
     });
 
     const result = await service.execute({
-      task: createTask("issue-comment-opinion"),
+      task: createTask("issue-comment-reply"),
       instruction,
     });
 
@@ -241,14 +238,14 @@ describe("ExecutionService", () => {
     });
 
     const result = await service.execute({
-      task: createTask("issue-comment-opinion"),
+      task: createTask("issue-comment-reply"),
       instruction: observeInstruction,
     });
 
     assert.equal(result.status, "succeeded");
     assert.equal(prompts.length, 1);
     assert.match(postedComments[0] ?? "", /Observed summary/);
-    assert.match(postedComments[0] ?? "", /issue-comment-opinion r1/);
+    assert.match(postedComments[0] ?? "", /issue-comment-reply r1/);
   });
 
   test("checks out the pull request head ref for observe work", async () => {
@@ -372,7 +369,7 @@ describe("ExecutionService", () => {
     });
 
     const result = await service.execute({
-      task: createTask("issue-to-pr"),
+      task: createTask("issue-implement"),
       instruction: mutateInstruction,
     });
 
@@ -429,7 +426,7 @@ describe("ExecutionService", () => {
     });
 
     const result = await service.execute({
-      task: createTask("issue-to-pr"),
+      task: createTask("issue-implement"),
       instruction: mutateInstruction,
     });
 

@@ -21,7 +21,6 @@ export interface InstructionPermissions {
 }
 
 export interface InstructionExecution {
-  agent: string;
   timeoutSec: number;
 }
 

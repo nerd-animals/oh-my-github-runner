@@ -3,8 +3,8 @@ import { describe, test } from "node:test";
 import { EnqueueService } from "../../src/services/enqueue-service.js";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 
-const issueToPrInstruction: InstructionDefinition = {
-  id: "issue-to-pr",
+const issueImplementInstruction: InstructionDefinition = {
+  id: "issue-implement",
   revision: 1,
   sourceKind: "issue",
   mode: "mutate",
@@ -23,7 +23,6 @@ const issueToPrInstruction: InstructionDefinition = {
   },
   githubActions: ["branch_push", "pr_create", "issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 3600,
   },
 };
@@ -32,7 +31,7 @@ describe("EnqueueService", () => {
   test("rejects a source kind mismatch", async () => {
     const service = new EnqueueService({
       instructionLoader: {
-        loadById: async () => issueToPrInstruction,
+        loadById: async () => issueImplementInstruction,
       },
       queueStore: {
         enqueue: async () => {
@@ -54,7 +53,7 @@ describe("EnqueueService", () => {
       service.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "pull_request", number: 52 },
-        instructionId: "issue-to-pr",
+        instructionId: "issue-implement",
         requestedBy: "test",
       }),
       /source kind/i,
@@ -64,7 +63,7 @@ describe("EnqueueService", () => {
   test("enqueues when the instruction matches the source kind", async () => {
     const service = new EnqueueService({
       instructionLoader: {
-        loadById: async () => issueToPrInstruction,
+        loadById: async () => issueImplementInstruction,
       },
       queueStore: {
         enqueue: async (input) => ({
@@ -92,7 +91,7 @@ describe("EnqueueService", () => {
     const task = await service.enqueue({
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 100 },
-      instructionId: "issue-to-pr",
+      instructionId: "issue-implement",
       requestedBy: "test",
     });
 

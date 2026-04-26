@@ -24,7 +24,6 @@ interface RawInstructionDefinition {
   };
   github_actions: string[];
   execution: {
-    agent: string;
     timeout_sec: number;
   };
 }
@@ -87,7 +86,6 @@ export async function loadInstructionDefinition({
     permissions: mapPermissions(raw.permissions),
     githubActions: raw.github_actions,
     execution: {
-      agent: raw.execution.agent,
       timeoutSec: raw.execution.timeout_sec,
     },
   };

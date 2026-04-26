@@ -1,19 +1,21 @@
-id: issue-comment-opinion
+id: issue-implement
 revision: 1
 source_kind: issue
-mode: observe
+mode: mutate
 context:
   include_issue_body: true
   include_issue_comments: true
+  include_linked_prs: true
 permissions:
   code_read: true
-  code_write: false
-  git_push: false
-  pr_create: false
-  pr_update: false
+  code_write: true
+  git_push: true
+  pr_create: true
+  pr_update: true
   comment_write: true
 github_actions:
+  - branch_push
+  - pr_create
   - issue_comment
 execution:
-  agent: codex-cli
-  timeout_sec: 1800
+  timeout_sec: 3600

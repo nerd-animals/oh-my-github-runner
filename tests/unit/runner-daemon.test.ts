@@ -6,7 +6,7 @@ import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
 
 const instruction: InstructionDefinition = {
-  id: "issue-comment-opinion",
+  id: "issue-comment-reply",
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
@@ -21,7 +21,6 @@ const instruction: InstructionDefinition = {
   },
   githubActions: ["issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 1800,
   },
 };
@@ -31,7 +30,7 @@ function createTask(status: TaskRecord["status"]): TaskRecord {
     taskId: "task_1",
     repo: { owner: "octo", name: "repo" },
     source: { kind: "issue", number: 100 },
-    instructionId: "issue-comment-opinion",
+    instructionId: "issue-comment-reply",
     status,
     priority: "normal",
     requestedBy: "test",

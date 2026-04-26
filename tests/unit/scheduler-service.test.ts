@@ -5,7 +5,7 @@ import type { TaskRecord } from "../../src/domain/task.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
 
 const observeInstruction: InstructionDefinition = {
-  id: "issue-comment-opinion",
+  id: "issue-comment-reply",
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
@@ -20,13 +20,12 @@ const observeInstruction: InstructionDefinition = {
   },
   githubActions: ["issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 1800,
   },
 };
 
 const mutateInstruction: InstructionDefinition = {
-  id: "issue-to-pr",
+  id: "issue-implement",
   revision: 1,
   sourceKind: "issue",
   mode: "mutate",
@@ -41,7 +40,6 @@ const mutateInstruction: InstructionDefinition = {
   },
   githubActions: ["branch_push", "pr_create", "issue_comment"],
   execution: {
-    agent: "codex-cli",
     timeoutSec: 3600,
   },
 };
@@ -70,11 +68,11 @@ describe("SchedulerService", () => {
 
     const selected = scheduler.selectNextTasks({
       tasks: [
-        createTask("task_running", "issue-to-pr", "running", "repo-a"),
-        createTask("task_queued", "issue-to-pr", "queued", "repo-a"),
+        createTask("task_running", "issue-implement", "running", "repo-a"),
+        createTask("task_queued", "issue-implement", "queued", "repo-a"),
       ],
       instructionsById: {
-        "issue-to-pr": mutateInstruction,
+        "issue-implement": mutateInstruction,
       },
     });
 
@@ -86,12 +84,12 @@ describe("SchedulerService", () => {
 
     const selected = scheduler.selectNextTasks({
       tasks: [
-        createTask("task_running", "issue-to-pr", "running", "repo-a"),
-        createTask("task_queued", "issue-comment-opinion", "queued", "repo-a"),
+        createTask("task_running", "issue-implement", "running", "repo-a"),
+        createTask("task_queued", "issue-comment-reply", "queued", "repo-a"),
       ],
       instructionsById: {
-        "issue-to-pr": mutateInstruction,
-        "issue-comment-opinion": observeInstruction,
+        "issue-implement": mutateInstruction,
+        "issue-comment-reply": observeInstruction,
       },
     });
 
@@ -103,13 +101,13 @@ describe("SchedulerService", () => {
 
     const selected = scheduler.selectNextTasks({
       tasks: [
-        createTask("task_1", "issue-to-pr", "queued", "repo-a"),
-        createTask("task_2", "issue-comment-opinion", "queued", "repo-a"),
-        createTask("task_3", "issue-to-pr", "queued", "repo-b"),
+        createTask("task_1", "issue-implement", "queued", "repo-a"),
+        createTask("task_2", "issue-comment-reply", "queued", "repo-a"),
+        createTask("task_3", "issue-implement", "queued", "repo-b"),
       ],
       instructionsById: {
-        "issue-to-pr": mutateInstruction,
-        "issue-comment-opinion": observeInstruction,
+        "issue-implement": mutateInstruction,
+        "issue-comment-reply": observeInstruction,
       },
     });
 

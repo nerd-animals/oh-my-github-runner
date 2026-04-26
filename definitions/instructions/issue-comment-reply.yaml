@@ -1,11 +1,10 @@
-id: pr-review-comment
+id: issue-comment-reply
 revision: 1
-source_kind: pull_request
+source_kind: issue
 mode: observe
 context:
-  include_pr_body: true
-  include_pr_comments: true
-  include_pr_diff: true
+  include_issue_body: true
+  include_issue_comments: true
 permissions:
   code_read: true
   code_write: false
@@ -14,6 +13,6 @@ permissions:
   pr_update: false
   comment_write: true
 github_actions:
-  - pull_request_comment
+  - issue_comment
 execution:
   timeout_sec: 1800

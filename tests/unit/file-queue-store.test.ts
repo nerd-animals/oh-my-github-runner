@@ -14,7 +14,7 @@ describe("FileQueueStore", () => {
       const task = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-to-pr",
+        instructionId: "issue-implement",
         requestedBy: "test",
       });
 
@@ -34,14 +34,14 @@ describe("FileQueueStore", () => {
       const first = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-comment-opinion",
+        instructionId: "issue-comment-reply",
         requestedBy: "test",
       });
 
       const second = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-to-pr",
+        instructionId: "issue-implement",
         requestedBy: "test",
       });
 
@@ -64,7 +64,7 @@ describe("FileQueueStore", () => {
       const task = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-to-pr",
+        instructionId: "issue-implement",
         requestedBy: "test",
       });
 
@@ -90,7 +90,7 @@ describe("FileQueueStore", () => {
       const task = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-to-pr",
+        instructionId: "issue-implement",
         requestedBy: "test",
       });
 
