@@ -53,6 +53,30 @@ const mutateInstruction: InstructionDefinition = {
   },
 };
 
+const prImplementInstruction: InstructionDefinition = {
+  id: "pr-implement",
+  revision: 1,
+  sourceKind: "pull_request",
+  mode: "mutate",
+  context: {
+    includePrBody: true,
+    includePrComments: true,
+    includePrDiff: true,
+  },
+  permissions: {
+    codeRead: true,
+    codeWrite: true,
+    gitPush: true,
+    prCreate: false,
+    prUpdate: false,
+    commentWrite: true,
+  },
+  githubActions: ["branch_push", "pull_request_comment"],
+  execution: {
+    timeoutSec: 3600,
+  },
+};
+
 const pullRequestObserveInstruction: InstructionDefinition = {
   id: "pr-review-comment",
   revision: 1,
@@ -165,6 +189,10 @@ describe("ExecutionService", () => {
           workspacePath: "/tmp/mutate",
           branchName: "ai/issue-100",
         }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
         hasChanges: async () => false,
         commitAll: async () => {},
         pushBranch: async () => {},
@@ -247,6 +275,10 @@ describe("ExecutionService", () => {
         prepareMutateWorkspace: async () => ({
           workspacePath: "/tmp/mutate",
           branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
         }),
         hasChanges: async () => false,
         commitAll: async () => {},
@@ -340,6 +372,10 @@ describe("ExecutionService", () => {
           workspacePath: "/tmp/mutate",
           branchName: "ai/issue-100",
         }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
         hasChanges: async () => false,
         commitAll: async () => {},
         pushBranch: async () => {},
@@ -416,6 +452,10 @@ describe("ExecutionService", () => {
         prepareMutateWorkspace: async () => ({
           workspacePath: "/tmp/mutate",
           branchName: "ai/pr-52",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/pr-52",
         }),
         hasChanges: async () => false,
         commitAll: async () => {},
@@ -499,6 +539,10 @@ describe("ExecutionService", () => {
             branchName: "ai/issue-100",
           };
         },
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
         hasChanges: async () => true,
         commitAll: async () => {
           workspaceCalls.push("commit");
@@ -576,6 +620,10 @@ describe("ExecutionService", () => {
           workspacePath: "/tmp/mutate",
           branchName: "ai/issue-100",
         }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
         hasChanges: async () => false,
         commitAll: async () => {
           throw new Error("should not commit");
@@ -609,5 +657,262 @@ describe("ExecutionService", () => {
     });
 
     assert.equal(result.status, "succeeded");
+  });
+
+  test("pr-implement pushes commits to PR head and posts a status comment without creating a new PR", async () => {
+    const prComments: string[] = [];
+    const workspaceCalls: string[] = [];
+    let preparedHeadRef: string | undefined;
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => pullRequestContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 52,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: pullRequestContext.headRef,
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        postIssueComment: async () => {},
+        postPullRequestComment: async (_repo, _number, body) => {
+          prComments.push(body);
+        },
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => {
+          throw new Error("pr-implement must not create a PR");
+        },
+        updatePullRequest: async () => {
+          throw new Error("pr-implement must not update a PR");
+        },
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async (_repo, _task, headRef) => {
+          preparedHeadRef = headRef;
+          workspaceCalls.push("prepare");
+          return {
+            workspacePath: "/tmp/pr-implement",
+            branchName: headRef,
+          };
+        },
+        hasChanges: async () => true,
+        commitAll: async () => {
+          workspaceCalls.push("commit");
+        },
+        pushBranch: async () => {
+          workspaceCalls.push("push");
+        },
+        cleanupWorkspace: async () => {
+          workspaceCalls.push("cleanup");
+        },
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Applied the fix.",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+      instruction: prImplementInstruction,
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.deepEqual(workspaceCalls, ["prepare", "commit", "push", "cleanup"]);
+    assert.equal(preparedHeadRef, pullRequestContext.headRef);
+    assert.equal(prComments.length, 1);
+    assert.match(
+      prComments[0] ?? "",
+      new RegExp(`Pushed commits to \`${pullRequestContext.headRef}\``),
+    );
+  });
+
+  test("pr-implement surfaces a push failure as a PR comment and fails the task", async () => {
+    const prComments: string[] = [];
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => pullRequestContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 52,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: pullRequestContext.headRef,
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        postIssueComment: async () => {},
+        postPullRequestComment: async (_repo, _number, body) => {
+          prComments.push(body);
+        },
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => ({
+          number: 0,
+          url: "",
+          branchName: "",
+        }),
+        updatePullRequest: async () => ({
+          number: 0,
+          url: "",
+          branchName: "",
+        }),
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: pullRequestContext.headRef,
+        }),
+        hasChanges: async () => true,
+        commitAll: async () => {},
+        pushBranch: async () => {
+          throw new Error("non-fast-forward push rejected");
+        },
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Applied the fix.",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+      instruction: prImplementInstruction,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(prComments.length, 1);
+    assert.match(prComments[0] ?? "", /Failed to push commits/);
+    assert.match(prComments[0] ?? "", /non-fast-forward/);
+  });
+
+  test("pr-implement reports no-op when the agent makes no changes", async () => {
+    const prComments: string[] = [];
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => pullRequestContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 52,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: pullRequestContext.headRef,
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        postIssueComment: async () => {},
+        postPullRequestComment: async (_repo, _number, body) => {
+          prComments.push(body);
+        },
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => ({
+          number: 0,
+          url: "",
+          branchName: "",
+        }),
+        updatePullRequest: async () => ({
+          number: 0,
+          url: "",
+          branchName: "",
+        }),
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: pullRequestContext.headRef,
+        }),
+        hasChanges: async () => false,
+        commitAll: async () => {
+          throw new Error("must not commit when there are no changes");
+        },
+        pushBranch: async () => {
+          throw new Error("must not push when there are no changes");
+        },
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "No changes were necessary.",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+      instruction: prImplementInstruction,
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.equal(prComments.length, 1);
+    assert.match(prComments[0] ?? "", /no changes were needed/);
   });
 });

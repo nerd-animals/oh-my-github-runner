@@ -50,11 +50,114 @@ export class ExecutionService {
       input.instruction.context,
     );
 
+    if (input.instruction.id === "pr-implement") {
+      if (context.kind !== "pull_request") {
+        return this.fail(
+          input.task.taskId,
+          "pr-implement requires a pull_request source",
+        );
+      }
+
+      return this.executePrImplement(input, context);
+    }
+
     if (input.instruction.mode === "observe") {
       return this.executeObserve(input, context);
     }
 
     return this.executeMutate(input, context);
+  }
+
+  private async executePrImplement(
+    input: ExecuteTaskInput,
+    context: GitHubSourceContext & { kind: "pull_request" },
+  ): Promise<ExecuteTaskResult> {
+    const headRef = context.headRef;
+    const workspace =
+      await this.dependencies.workspaceManager.preparePrImplementWorkspace(
+        input.task.repo,
+        input.task,
+        headRef,
+      );
+
+    try {
+      const agentResult = await this.dependencies.agentRegistry
+        .resolve(input.task.agent)
+        .run({
+          task: input.task,
+          instruction: input.instruction,
+          workspacePath: workspace.workspacePath,
+          prompt: this.promptBuilder.build({
+            task: input.task,
+            instruction: input.instruction,
+            context,
+          }),
+        });
+
+      if (agentResult.exitCode !== 0) {
+        return this.fail(
+          input.task.taskId,
+          agentResult.stderr || agentResult.stdout,
+        );
+      }
+
+      const hasChanges =
+        await this.dependencies.workspaceManager.hasChanges(workspace);
+
+      if (!hasChanges) {
+        await this.dependencies.githubClient.postPullRequestComment(
+          input.task.repo,
+          input.task.source.number,
+          this.withInstructionFooter(
+            "Ran `/claude implement`: no changes were needed.",
+            input.instruction,
+          ),
+        );
+        await this.dependencies.logStore.write(
+          input.task.taskId,
+          "pr-implement completed with no changes",
+        );
+        return { status: "succeeded" };
+      }
+
+      await this.dependencies.workspaceManager.commitAll(
+        workspace,
+        this.buildCommitMessage(input.task),
+      );
+
+      try {
+        await this.dependencies.workspaceManager.pushBranch(workspace);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "git push failed";
+        await this.dependencies.githubClient.postPullRequestComment(
+          input.task.repo,
+          input.task.source.number,
+          this.withInstructionFooter(
+            `Failed to push commits to \`${headRef}\`: ${message}`,
+            input.instruction,
+          ),
+        );
+        return this.fail(input.task.taskId, message);
+      }
+
+      await this.dependencies.githubClient.postPullRequestComment(
+        input.task.repo,
+        input.task.source.number,
+        this.withInstructionFooter(
+          `Pushed commits to \`${headRef}\`.\n\n${agentResult.stdout.trim()}`,
+          input.instruction,
+        ),
+      );
+
+      await this.dependencies.logStore.write(
+        input.task.taskId,
+        `pr-implement pushed commits to ${headRef}`,
+      );
+      return { status: "succeeded" };
+    } finally {
+      await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
+    }
   }
 
   private async executeObserve(

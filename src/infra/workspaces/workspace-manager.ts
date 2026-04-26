@@ -19,6 +19,11 @@ export interface WorkspaceManager {
     baseBranch: string,
     branchName: string,
   ): Promise<MutateWorkspaceHandle>;
+  preparePrImplementWorkspace(
+    repo: RepoRef,
+    task: TaskRecord,
+    headRef: string,
+  ): Promise<MutateWorkspaceHandle>;
   hasChanges(workspace: WorkspaceHandle): Promise<boolean>;
   commitAll(workspace: MutateWorkspaceHandle, message: string): Promise<void>;
   pushBranch(workspace: MutateWorkspaceHandle): Promise<void>;

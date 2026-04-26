@@ -68,6 +68,33 @@ export class GitWorkspaceManager implements WorkspaceManager {
     };
   }
 
+  async preparePrImplementWorkspace(
+    repo: RepoRef,
+    task: TaskRecord,
+    headRef: string,
+  ): Promise<MutateWorkspaceHandle> {
+    const repoUrl = this.getRepoUrl(repo);
+    const mirrorPath = this.getMirrorPath(repo);
+    const workspacePath = this.getWorkspacePath(task.taskId);
+
+    await this.ensureMirror(repoUrl, mirrorPath);
+    await this.cloneWorkspace(mirrorPath, workspacePath, repoUrl);
+    await this.runGit(["-C", workspacePath, "fetch", "origin", "--prune"]);
+    await this.runGit([
+      "-C",
+      workspacePath,
+      "checkout",
+      "-B",
+      headRef,
+      `origin/${headRef}`,
+    ]);
+
+    return {
+      workspacePath,
+      branchName: headRef,
+    };
+  }
+
   async hasChanges(workspace: WorkspaceHandle): Promise<boolean> {
     const result = await this.runGit([
       "-C",
