@@ -46,6 +46,25 @@ describe("loadAgentRateLimitConfig", () => {
     }
   });
 
+  test("the shipped claude.yaml matches both observed rate-limit phrasings", async () => {
+    const config = await loadAgentRateLimitConfig(
+      "definitions/agents",
+      "claude",
+    );
+
+    const orgLimit = "You've hit your org's monthly usage limit";
+    const userLimit = "You've hit your limit · resets 11:30am (UTC)";
+    const jsonEnvelope = '"api_error_status": 429,';
+
+    const matches = (sample: string): boolean =>
+      config.stderrPatterns.some((pattern) => pattern.test(sample));
+
+    assert.equal(matches(orgLimit), true);
+    assert.equal(matches(userLimit), true);
+    assert.equal(matches(jsonEnvelope), true);
+    assert.equal(matches("hi there, no rate limit here"), false);
+  });
+
   test("treats an empty yaml file as an empty config", async () => {
     const dir = await mkdtemp(join(tmpdir(), "agent-config-"));
 
