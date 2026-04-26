@@ -1,11 +1,15 @@
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { RunnerDaemon } from "./daemon/runner-daemon.js";
+import { Runtime } from "./runtime.js";
 import { FileInstructionLoader } from "./infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "./infra/queue/file-queue-store.js";
 import { FileLogStore } from "./infra/logs/file-log-store.js";
 import { SchedulerService } from "./services/scheduler-service.js";
 import { ExecutionService } from "./services/execution-service.js";
+import { EnqueueService } from "./services/enqueue-service.js";
+import { EventDispatcher } from "./services/event-dispatcher.js";
+import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
@@ -14,6 +18,8 @@ import {
   AgentRegistry,
   loadAgentConfigFromEnv,
 } from "./services/agent-registry.js";
+import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
+import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -34,7 +40,7 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-export function createDaemonFromEnvironment(): RunnerDaemon {
+export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const runnerRoot = process.env.RUNNER_ROOT ?? process.cwd();
   const pollIntervalMs = parsePositiveInt(
     process.env.RUNNER_POLL_INTERVAL_MS,
@@ -50,6 +56,9 @@ export function createDaemonFromEnvironment(): RunnerDaemon {
     60 *
     60 *
     1000;
+  const webhookPort = parsePositiveInt(process.env.WEBHOOK_PORT, 8080);
+  const webhookHost = process.env.WEBHOOK_HOST ?? "127.0.0.1";
+
   const processRunner = new ChildProcessRunner();
   const logStore = new FileLogStore({
     logsDir: path.join(runnerRoot, "var", "logs"),
@@ -84,16 +93,17 @@ export function createDaemonFromEnvironment(): RunnerDaemon {
     agentConfig.defaultAgent,
   );
 
-  return new RunnerDaemon({
-    queueStore: new FileQueueStore({
-      dataDir: path.join(runnerRoot, "var", "queue"),
-    }),
-    instructionLoader: new FileInstructionLoader(
-      path.join(runnerRoot, "definitions", "instructions"),
-    ),
-    schedulerService: new SchedulerService({
-      maxConcurrency,
-    }),
+  const queueStore = new FileQueueStore({
+    dataDir: path.join(runnerRoot, "var", "queue"),
+  });
+  const instructionLoader = new FileInstructionLoader(
+    path.join(runnerRoot, "definitions", "instructions"),
+  );
+
+  const daemon = new RunnerDaemon({
+    queueStore,
+    instructionLoader,
+    schedulerService: new SchedulerService({ maxConcurrency }),
     executionService: new ExecutionService({
       githubClient,
       workspaceManager,
@@ -103,16 +113,75 @@ export function createDaemonFromEnvironment(): RunnerDaemon {
     logStore,
     pollIntervalMs,
   });
+
+  const enqueueService = new EnqueueService({
+    instructionLoader,
+    queueStore,
+  });
+
+  const botUserIdOverride = process.env.BOT_USER_ID;
+  const botUserId =
+    botUserIdOverride !== undefined && botUserIdOverride.length > 0
+      ? Number(botUserIdOverride)
+      : (await githubClient.getAppBotInfo()).id;
+
+  if (!Number.isInteger(botUserId)) {
+    throw new Error(`Invalid bot user id: ${botUserId}`);
+  }
+
+  const dispatcher = new EventDispatcher({
+    agentRegistry,
+    botUserId,
+  });
+
+  const webhookHandler = new WebhookHandler({
+    secret: requireEnv("GITHUB_WEBHOOK_SECRET"),
+    dispatcher,
+    enqueueService,
+    githubClient,
+    deliveryDedup: new DeliveryDedupCache(),
+  });
+
+  const httpServer = createWebhookServer({ handler: webhookHandler });
+
+  return new Runtime({
+    daemon,
+    webhookServer: {
+      start: () =>
+        new Promise<void>((resolve, reject) => {
+          const onError = (error: Error) => {
+            httpServer.removeListener("listening", onListening);
+            reject(error);
+          };
+          const onListening = () => {
+            httpServer.removeListener("error", onError);
+            resolve();
+          };
+          httpServer.once("error", onError);
+          httpServer.once("listening", onListening);
+          httpServer.listen(webhookPort, webhookHost);
+        }),
+      stop: () =>
+        new Promise<void>((resolve, reject) => {
+          httpServer.close((error) => {
+            if (error) {
+              reject(error);
+              return;
+            }
+            resolve();
+          });
+        }),
+    },
+  });
 }
 
 export async function main(): Promise<void> {
   const abortController = new AbortController();
-  const daemon = createDaemonFromEnvironment();
-
   process.on("SIGINT", () => abortController.abort());
   process.on("SIGTERM", () => abortController.abort());
 
-  await daemon.start(abortController.signal);
+  const runtime = await buildRuntimeFromEnvironment();
+  await runtime.run(abortController.signal);
 }
 
 if (process.argv[1] !== undefined) {
