@@ -202,13 +202,32 @@ export class GitHubAppClient implements GitHubClient {
     const jwt = this.createAppJwt();
     const app = await this.appRequest<GitHubAppResponse>("GET", "/app", jwt);
     const login = `${app.slug}[bot]`;
-    const user = await this.appRequest<GitHubUserResponse>(
-      "GET",
+
+    // GitHub does not accept JWT auth on /users/{login}; the public endpoint
+    // works without auth. We fetch with no Authorization header so the
+    // installation does not need to be on a repo to look up its own bot id.
+    const user = await this.publicRequest<GitHubUserResponse>(
       `/users/${encodeURIComponent(login)}`,
-      jwt,
     );
 
     return { id: user.id, login: user.login, slug: app.slug };
+  }
+
+  private async publicRequest<T>(pathname: string): Promise<T> {
+    const response = await fetch(`${this.apiBaseUrl}${pathname}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "oh-my-github-runner",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub public request failed: GET ${pathname} -> ${response.status}`,
+      );
+    }
+
+    return (await response.json()) as T;
   }
 
   async getDefaultBranch(repo: RepoRef): Promise<string> {
