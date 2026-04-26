@@ -186,6 +186,9 @@ describe("ExecutionService", () => {
         write: async () => {},
         cleanupExpired: async () => {},
       },
+      queueStore: {
+        listTasks: async () => [],
+      },
     });
 
     const result = await service.execute({
@@ -266,6 +269,9 @@ describe("ExecutionService", () => {
         write: async () => {},
         cleanupExpired: async () => {},
       },
+      queueStore: {
+        listTasks: async () => [],
+      },
     });
 
     const result = await service.execute({
@@ -277,6 +283,93 @@ describe("ExecutionService", () => {
     assert.equal(prompts.length, 1);
     assert.match(postedComments[0] ?? "", /Observed summary/);
     assert.match(postedComments[0] ?? "", /issue-comment-reply r1/);
+  });
+
+  test("skips observe write-back when a newer task supersedes it", async () => {
+    const postedComments: string[] = [];
+
+    const currentTask = createTask("issue-comment-reply");
+    const newerTask: TaskRecord = {
+      taskId: "task_newer",
+      repo: currentTask.repo,
+      source: currentTask.source,
+      instructionId: currentTask.instructionId,
+      agent: "claude",
+      status: "queued",
+      priority: "normal",
+      requestedBy: "alice",
+      createdAt: "2030-01-01T00:00:00.000Z",
+    };
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => issueContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        postIssueComment: async (_repo, _number, body) => {
+          postedComments.push(body);
+        },
+        postPullRequestComment: async () => {},
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => ({
+          number: 1,
+          url: "https://example.test/pr/1",
+          branchName: "ai/issue-100",
+        }),
+        updatePullRequest: async () => ({
+          number: 1,
+          url: "https://example.test/pr/1",
+          branchName: "ai/issue-100",
+        }),
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        hasChanges: async () => false,
+        commitAll: async () => {},
+        pushBranch: async () => {},
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "stale review",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [currentTask, newerTask],
+      },
+    });
+
+    const result = await service.execute({
+      task: currentTask,
+      instruction: observeInstruction,
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.equal(postedComments.length, 0);
   });
 
   test("checks out the pull request head ref for observe work", async () => {
@@ -341,6 +434,9 @@ describe("ExecutionService", () => {
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
       },
     });
 
@@ -427,6 +523,9 @@ describe("ExecutionService", () => {
         write: async () => {},
         cleanupExpired: async () => {},
       },
+      queueStore: {
+        listTasks: async () => [],
+      },
     });
 
     const result = await service.execute({
@@ -498,6 +597,9 @@ describe("ExecutionService", () => {
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
       },
     });
 

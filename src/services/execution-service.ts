@@ -3,15 +3,18 @@ import type { GitHubSourceContext } from "../domain/github.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { GitHubClient } from "../infra/github/github-client.js";
 import type { LogStore } from "../infra/logs/log-store.js";
+import type { QueueStore } from "../infra/queue/queue-store.js";
 import type { WorkspaceManager } from "../infra/workspaces/workspace-manager.js";
 import type { AgentRegistry } from "./agent-registry.js";
 import { ExecutionPromptBuilder } from "./execution/execution-prompt-builder.js";
 import { GitHubResultWriter } from "./execution/github-result-writer.js";
+import { isObserveResultSuperseded } from "./stale-supersede.js";
 
 export interface ExecutionServiceDependencies {
   githubClient: GitHubClient;
   workspaceManager: WorkspaceManager;
   agentRegistry: Pick<AgentRegistry, "resolve">;
+  queueStore: Pick<QueueStore, "listTasks">;
   logStore: LogStore;
 }
 
@@ -85,6 +88,16 @@ export class ExecutionService {
         agentResult.stdout.trim(),
         input.instruction,
       );
+
+      const otherTasks = await this.dependencies.queueStore.listTasks();
+
+      if (isObserveResultSuperseded(input.task, otherTasks)) {
+        await this.dependencies.logStore.write(
+          input.task.taskId,
+          "observe write-back skipped: superseded by newer task",
+        );
+        return { status: "succeeded" };
+      }
 
       await this.resultWriter.writeObserveResult({
         task: input.task,
