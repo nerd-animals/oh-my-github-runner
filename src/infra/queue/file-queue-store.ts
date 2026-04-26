@@ -29,6 +29,7 @@ export class FileQueueStore implements QueueStore {
       repo: input.repo,
       source: input.source,
       instructionId: input.instructionId,
+      agent: input.agent,
       status: "queued",
       priority: input.priority ?? "normal",
       requestedBy: input.requestedBy,
@@ -124,7 +125,15 @@ export class FileQueueStore implements QueueStore {
   private async readTasks(): Promise<TaskRecord[]> {
     try {
       const raw = await readFile(this.tasksFilePath, "utf8");
-      return JSON.parse(raw) as TaskRecord[];
+      const tasks = JSON.parse(raw) as TaskRecord[];
+
+      for (const task of tasks) {
+        if (typeof task.agent !== "string" || task.agent.length === 0) {
+          task.agent = "claude";
+        }
+      }
+
+      return tasks;
     } catch (error) {
       const isMissingFile =
         typeof error === "object" &&

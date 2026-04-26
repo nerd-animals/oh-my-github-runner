@@ -104,6 +104,7 @@ function createTask(
     source,
     instructionId,
     instructionRevision: 1,
+    agent: "claude",
     status: "running",
     priority: "normal",
     requestedBy: "test",
@@ -156,15 +157,17 @@ describe("ExecutionService", () => {
         pushBranch: async () => {},
         cleanupWorkspace: async () => {},
       },
-      agentRunner: {
-        run: async (input: AgentRunInput): Promise<AgentRunResult> => {
-          prompts.push(input);
-          return {
-            exitCode: 0,
-            stdout: "Observed summary",
-            stderr: "",
-          };
-        },
+      agentRegistry: {
+        resolve: () => ({
+          run: async (input: AgentRunInput): Promise<AgentRunResult> => {
+            prompts.push(input);
+            return {
+              exitCode: 0,
+              stdout: "Observed summary",
+              stderr: "",
+            };
+          },
+        }),
       },
       logStore: {
         write: async () => {},
@@ -221,15 +224,17 @@ describe("ExecutionService", () => {
         pushBranch: async () => {},
         cleanupWorkspace: async () => {},
       },
-      agentRunner: {
-        run: async (input: AgentRunInput): Promise<AgentRunResult> => {
-          prompts.push(input);
-          return {
-            exitCode: 0,
-            stdout: "Observed summary",
-            stderr: "",
-          };
-        },
+      agentRegistry: {
+        resolve: () => ({
+          run: async (input: AgentRunInput): Promise<AgentRunResult> => {
+            prompts.push(input);
+            return {
+              exitCode: 0,
+              stdout: "Observed summary",
+              stderr: "",
+            };
+          },
+        }),
       },
       logStore: {
         write: async () => {},
@@ -285,11 +290,13 @@ describe("ExecutionService", () => {
         pushBranch: async () => {},
         cleanupWorkspace: async () => {},
       },
-      agentRunner: {
-        run: async () => ({
-          exitCode: 0,
-          stdout: "Review summary",
-          stderr: "",
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Review summary",
+            stderr: "",
+          }),
         }),
       },
       logStore: {
@@ -355,11 +362,13 @@ describe("ExecutionService", () => {
           workspaceCalls.push("cleanup");
         },
       },
-      agentRunner: {
-        run: async () => ({
-          exitCode: 0,
-          stdout: "Implemented fix",
-          stderr: "",
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Implemented fix",
+            stderr: "",
+          }),
         }),
       },
       logStore: {
@@ -412,11 +421,13 @@ describe("ExecutionService", () => {
         },
         cleanupWorkspace: async () => {},
       },
-      agentRunner: {
-        run: async () => ({
-          exitCode: 0,
-          stdout: "No changes needed",
-          stderr: "",
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "No changes needed",
+            stderr: "",
+          }),
         }),
       },
       logStore: {

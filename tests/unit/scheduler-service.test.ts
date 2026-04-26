@@ -55,6 +55,7 @@ function createTask(
     repo: { owner: "octo", name: repoName },
     source: { kind: "issue", number: Number(taskId.replace(/\D/g, "")) || 1 },
     instructionId,
+    agent: "claude",
     status,
     priority: "normal",
     requestedBy: "test",

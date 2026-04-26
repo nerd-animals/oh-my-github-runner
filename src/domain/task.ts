@@ -19,6 +19,7 @@ export interface TaskRecord {
   source: SourceRef;
   instructionId: string;
   instructionRevision?: number;
+  agent: string;
   status: TaskStatus;
   priority: TaskPriority;
   requestedBy: string;

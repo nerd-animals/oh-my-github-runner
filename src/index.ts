@@ -10,6 +10,10 @@ import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
+import {
+  AgentRegistry,
+  loadAgentConfigFromEnv,
+} from "./services/agent-registry.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -67,14 +71,18 @@ export function createDaemonFromEnvironment(): RunnerDaemon {
       ? { githubWebBaseUrl: process.env.GITHUB_WEB_BASE_URL }
       : {}),
   });
-  const agentRunner = new HeadlessCommandAgentRunner({
-    command: requireEnv("AGENT_COMMAND"),
-    args:
-      process.env.AGENT_ARGS_JSON === undefined
-        ? []
-        : (JSON.parse(process.env.AGENT_ARGS_JSON) as string[]),
-    processRunner,
-  });
+  const agentConfig = loadAgentConfigFromEnv(process.env);
+  const agentRegistry = new AgentRegistry(
+    agentConfig.agents.map((name) => ({
+      name,
+      runner: new HeadlessCommandAgentRunner({
+        command: agentConfig.commands[name]!.command,
+        args: agentConfig.commands[name]!.args,
+        processRunner,
+      }),
+    })),
+    agentConfig.defaultAgent,
+  );
 
   return new RunnerDaemon({
     queueStore: new FileQueueStore({
@@ -89,7 +97,7 @@ export function createDaemonFromEnvironment(): RunnerDaemon {
     executionService: new ExecutionService({
       githubClient,
       workspaceManager,
-      agentRunner,
+      agentRegistry,
       logStore,
     }),
     logStore,

@@ -15,6 +15,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
+        agent: "claude",
         requestedBy: "test",
       });
 
@@ -35,6 +36,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-comment-reply",
+        agent: "claude",
         requestedBy: "test",
       });
 
@@ -42,6 +44,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
+        agent: "claude",
         requestedBy: "test",
       });
 
@@ -65,6 +68,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
+        agent: "claude",
         requestedBy: "test",
       });
 
@@ -82,6 +86,37 @@ describe("FileQueueStore", () => {
     }
   });
 
+  test("injects default agent='claude' for legacy records that lack the field", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const tasksFilePath = join(root, "tasks.json");
+      const legacyRecord = {
+        taskId: "task_legacy",
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-comment-reply",
+        status: "queued",
+        priority: "normal",
+        requestedBy: "test",
+        createdAt: "2026-04-24T00:00:00.000Z",
+      };
+      await (await import("node:fs/promises")).writeFile(
+        tasksFilePath,
+        JSON.stringify([legacyRecord], null, 2),
+        "utf8",
+      );
+
+      const store = new FileQueueStore({ dataDir: root });
+      const tasks = await store.listTasks();
+
+      assert.equal(tasks.length, 1);
+      assert.equal(tasks[0]?.agent, "claude");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("recovers stale running tasks as failed", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
@@ -91,6 +126,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
+        agent: "claude",
         requestedBy: "test",
       });
 

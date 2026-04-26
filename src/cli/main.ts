@@ -24,6 +24,8 @@ export async function main(argv: string[]): Promise<void> {
   const sourceKind = getOption(rest, "--source-kind");
   const sourceNumber = getOption(rest, "--source-number");
   const instructionId = getOption(rest, "--instruction-id");
+  const agent =
+    getOption(rest, "--agent") ?? process.env.DEFAULT_AGENT ?? "claude";
 
   if (
     repoOwner === undefined ||
@@ -57,6 +59,7 @@ export async function main(argv: string[]): Promise<void> {
     sourceKind,
     sourceNumber: parsedSourceNumber,
     instructionId,
+    agent,
   });
 
   console.log(

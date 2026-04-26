@@ -1,17 +1,17 @@
 import type { InstructionDefinition } from "../domain/instruction.js";
 import type { GitHubSourceContext } from "../domain/github.js";
 import type { TaskRecord } from "../domain/task.js";
-import type { AgentRunner } from "../infra/agent/agent-runner.js";
 import type { GitHubClient } from "../infra/github/github-client.js";
 import type { LogStore } from "../infra/logs/log-store.js";
 import type { WorkspaceManager } from "../infra/workspaces/workspace-manager.js";
+import type { AgentRegistry } from "./agent-registry.js";
 import { ExecutionPromptBuilder } from "./execution/execution-prompt-builder.js";
 import { GitHubResultWriter } from "./execution/github-result-writer.js";
 
 export interface ExecutionServiceDependencies {
   githubClient: GitHubClient;
   workspaceManager: WorkspaceManager;
-  agentRunner: AgentRunner;
+  agentRegistry: Pick<AgentRegistry, "resolve">;
   logStore: LogStore;
 }
 
@@ -64,16 +64,18 @@ export class ExecutionService {
     );
 
     try {
-      const agentResult = await this.dependencies.agentRunner.run({
-        task: input.task,
-        instruction: input.instruction,
-        workspacePath: workspace.workspacePath,
-        prompt: this.promptBuilder.build({
+      const agentResult = await this.dependencies.agentRegistry
+        .resolve(input.task.agent)
+        .run({
           task: input.task,
           instruction: input.instruction,
-          context,
-        }),
-      });
+          workspacePath: workspace.workspacePath,
+          prompt: this.promptBuilder.build({
+            task: input.task,
+            instruction: input.instruction,
+            context,
+          }),
+        });
 
       if (agentResult.exitCode !== 0) {
         return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);
@@ -115,16 +117,18 @@ export class ExecutionService {
       );
 
     try {
-      const agentResult = await this.dependencies.agentRunner.run({
-        task: input.task,
-        instruction: input.instruction,
-        workspacePath: workspace.workspacePath,
-        prompt: this.promptBuilder.build({
+      const agentResult = await this.dependencies.agentRegistry
+        .resolve(input.task.agent)
+        .run({
           task: input.task,
           instruction: input.instruction,
-          context,
-        }),
-      });
+          workspacePath: workspace.workspacePath,
+          prompt: this.promptBuilder.build({
+            task: input.task,
+            instruction: input.instruction,
+            context,
+          }),
+        });
 
       if (agentResult.exitCode !== 0) {
         return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);

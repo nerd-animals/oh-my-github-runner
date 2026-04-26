@@ -54,6 +54,7 @@ describe("EnqueueService", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "pull_request", number: 52 },
         instructionId: "issue-implement",
+        agent: "claude",
         requestedBy: "test",
       }),
       /source kind/i,
@@ -71,6 +72,7 @@ describe("EnqueueService", () => {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
+          agent: input.agent,
           status: "queued",
           priority: input.priority ?? "normal",
           requestedBy: input.requestedBy,
@@ -92,10 +94,12 @@ describe("EnqueueService", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 100 },
       instructionId: "issue-implement",
+      agent: "claude",
       requestedBy: "test",
     });
 
     assert.equal(task.taskId, "task_1");
     assert.equal(task.status, "queued");
+    assert.equal(task.agent, "claude");
   });
 });
