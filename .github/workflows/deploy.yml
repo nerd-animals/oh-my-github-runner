@@ -3,7 +3,18 @@ name: Deploy
 on:
   push:
     branches: [main]
-  workflow_dispatch:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'tests/**'
+      - '.gitignore'
+      - '.env.example'
+      - 'ops/systemd/**'
+      - 'ops/cloudflared/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy
@@ -12,31 +23,22 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Connect to Tailscale
-        uses: tailscale/github-action@v3
+        uses: tailscale/github-action@v4
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:gh-deploy
-
-      - name: Configure SSH
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-        run: |
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
+          oauth-secret:    ${{ secrets.TS_OAUTH_SECRET }}
+          tags:            tag:gh-deploy
 
       - name: Run deploy script on VM
         env:
           SSH_HOST: ${{ vars.SSH_HOST }}
           SSH_USER: ${{ vars.SSH_USER }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
-              -o StrictHostKeyChecking=accept-new \
+          ssh -o StrictHostKeyChecking=accept-new \
               -o BatchMode=yes \
-              -o ConnectTimeout=15 \
+              -o ConnectTimeout=10 \
               "$SSH_USER@$SSH_HOST" \
-              'sudo /opt/oh-my-github-runner/current/ops/scripts/deploy.sh'
+              'bash /opt/oh-my-github-runner/current/ops/scripts/deploy.sh'

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Updates the runner to origin/main and restarts the service if there is a diff.
-# Designed to be invoked by the deploy user over SSH from GitHub Actions.
-# Sudoers must allow:
-#   deploy ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
-#   deploy ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+# Designed to be invoked by the SSH user (ubuntu by default) from GitHub Actions
+# over Tailscale SSH. Sudoers must allow that user:
+#   <ssh_user> ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
+#   <ssh_user> ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
 set -euo pipefail
 
 REPO_ROOT=${REPO_ROOT:-/opt/oh-my-github-runner/current}

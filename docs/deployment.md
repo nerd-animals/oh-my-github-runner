@@ -99,39 +99,35 @@ curl -i -X POST https://oh-my-github-runner.darakbox.com/webhook
 A 200 with body `ignored` to a webhook the runner cannot route also confirms
 end-to-end signing path.
 
-## Continuous deployment via GitHub Actions + Tailscale
+## Continuous deployment via GitHub Actions + Tailscale SSH
 
-`push` to `main` triggers `.github/workflows/deploy.yml`, which connects
-to the tailnet, SSHes into the VM as the `deploy` user, and runs
-`ops/scripts/deploy.sh`. The script does a git fetch, no-ops if the head
-already matches `origin/main`, otherwise resets, reinstalls runtime
-dependencies, recompiles, and restarts the service. Failures abort the
-deploy without touching the running daemon.
+`push` to `main` triggers `.github/workflows/deploy.yml`, which brings up
+an ephemeral Tailscale node (`tag:gh-deploy`) and SSHes into the VM
+(`tag:server`) over **Tailscale SSH** — no SSH keys are managed in
+GitHub, the tailnet ACL handles the auth. On the VM, the workflow runs
+`ops/scripts/deploy.sh` which fetches `origin/main`, no-ops if the head
+already matches, otherwise resets, reinstalls runtime dependencies,
+recompiles, and restarts the service. Build failures abort the deploy
+without touching the running daemon.
 
 ### One-time VM setup
 
 ```sh
-# 1) deploy user with no shell-access password
-sudo useradd -m -s /bin/bash deploy
-sudo install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
+# 1) Tailscale + Tailscale SSH (so the tailnet identity authenticates SSH)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh --advertise-tags=tag:server
 
-# 2) trust the workflow's SSH key
-sudo -u deploy tee /home/deploy/.ssh/authorized_keys >/dev/null <<'KEY'
-ssh-ed25519 AAAA... github-actions-deploy
-KEY
-sudo chmod 600 /home/deploy/.ssh/authorized_keys
-
-# 3) sudoers — deploy user can do exactly two things
+# 2) Sudoers — the SSH user (ubuntu by default) gets only what deploy needs
 sudo install -m 440 /dev/stdin /etc/sudoers.d/oh-my-github-runner-deploy <<'SUDO'
-deploy ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
-deploy ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+ubuntu ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
+ubuntu ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
 SUDO
 sudo visudo -c   # syntax check; non-zero exit = revert above
-
-# 4) Tailscale on the VM (already tagged tag:server in this tailnet)
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --ssh=false --advertise-tags=tag:server
 ```
+
+If the SSH login user differs from `ubuntu` (e.g. the tailnet ACL maps
+`tag:gh-deploy` → `tag:server` as a different login), substitute that
+login throughout the sudoers file and the GitHub Variable.
 
 ### One-time GitHub setup
 
@@ -140,16 +136,15 @@ Repository → Settings:
 - **Secrets**:
   - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
     OAuth clients (scope `tag:gh-deploy`)
-  - `SSH_PRIVATE_KEY` — the `deploy` user's ed25519 private key
-    (`ssh-keygen -t ed25519`)
 - **Variables**:
-  - `SSH_HOST` — VM's MagicDNS name, e.g.
-    `github-runner.tail-xxxx.ts.net`
-  - `SSH_USER` — `deploy`
+  - `SSH_HOST` — VM's tailnet hostname (short or MagicDNS form, e.g.
+    `github-runner` or `github-runner.tail-xxxx.ts.net`)
+  - `SSH_USER` — typically `ubuntu`
 
-Tailnet ACL (existing tagOwners + ACL rule allowing `tag:gh-deploy` to
-reach `tag:server:22`). The runner repo reuses the tailnet's existing
-`tag:server` and `tag:gh-deploy` tags; no new tags are introduced.
+Tailnet ACL must allow `tag:gh-deploy` → `tag:server` over SSH and
+permit the chosen login user under Tailscale SSH (`autogroup:nonroot` or
+explicit `ubuntu`). Both tags reuse the tailnet's existing definitions;
+no new tags are introduced for this repo.
 
 ### Verifying the deploy
 
