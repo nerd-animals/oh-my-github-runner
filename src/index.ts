@@ -23,6 +23,7 @@ import {
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
+import { RepoAllowlist } from "./services/repo-allowlist.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -146,9 +147,18 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     registeredAgents: agentConfig.agents,
   });
 
+  const repoAllowlist = RepoAllowlist.fromEnv(process.env.ALLOWED_REPOS);
+
+  if (repoAllowlist.isEmpty()) {
+    throw new Error(
+      "ALLOWED_REPOS must list at least one allowed repository (owner/name, comma-separated)",
+    );
+  }
+
   const enqueueService = new EnqueueService({
     instructionLoader,
     queueStore,
+    repoAllowlist,
   });
 
   const botUserIdOverride = process.env.BOT_USER_ID;

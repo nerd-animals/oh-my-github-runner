@@ -33,6 +33,9 @@ describe("EnqueueService", () => {
       instructionLoader: {
         loadById: async () => issueImplementInstruction,
       },
+      repoAllowlist: {
+        isAllowed: () => true,
+      },
       queueStore: {
         enqueue: async () => {
           throw new Error("should not be called");
@@ -64,10 +67,52 @@ describe("EnqueueService", () => {
     );
   });
 
+  test("rejects an enqueue for a repo outside the allowlist", async () => {
+    const service = new EnqueueService({
+      instructionLoader: {
+        loadById: async () => issueImplementInstruction,
+      },
+      queueStore: {
+        enqueue: async () => {
+          throw new Error("should not be called");
+        },
+        listTasks: async () => [],
+        getTask: async () => undefined,
+        startTask: async () => {
+          throw new Error("should not be called");
+        },
+        completeTask: async () => {
+          throw new Error("should not be called");
+        },
+        revertToQueued: async () => {
+          throw new Error("should not be called");
+        },
+        recoverRunningTasks: async () => {},
+      },
+      repoAllowlist: {
+        isAllowed: () => false,
+      },
+    });
+
+    await assert.rejects(
+      service.enqueue({
+        repo: { owner: "rogue", name: "repo" },
+        source: { kind: "issue", number: 1 },
+        instructionId: "issue-implement",
+        agent: "claude",
+        requestedBy: "test",
+      }),
+      /not in the allowlist/,
+    );
+  });
+
   test("enqueues when the instruction matches the source kind", async () => {
     const service = new EnqueueService({
       instructionLoader: {
         loadById: async () => issueImplementInstruction,
+      },
+      repoAllowlist: {
+        isAllowed: () => true,
       },
       queueStore: {
         enqueue: async (input) => ({
