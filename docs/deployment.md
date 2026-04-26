@@ -128,8 +128,9 @@ deploy ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
 SUDO
 sudo visudo -c   # syntax check; non-zero exit = revert above
 
-# 4) Tailscale on the VM, advertised with the right tag
-sudo tailscale up --ssh=false --advertise-tags=tag:runner
+# 4) Tailscale on the VM (already tagged tag:server in this tailnet)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --ssh=false --advertise-tags=tag:server
 ```
 
 ### One-time GitHub setup
@@ -138,7 +139,7 @@ Repository → Settings:
 
 - **Secrets**:
   - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
-    OAuth clients (scope `tag:ci`)
+    OAuth clients (scope `tag:gh-deploy`)
   - `SSH_PRIVATE_KEY` — the `deploy` user's ed25519 private key
     (`ssh-keygen -t ed25519`)
 - **Variables**:
@@ -146,19 +147,9 @@ Repository → Settings:
     `github-runner.tail-xxxx.ts.net`
   - `SSH_USER` — `deploy`
 
-Tailnet ACL (`tagOwners` + ACL rule):
-
-```jsonc
-{
-  "tagOwners": {
-    "tag:runner": ["autogroup:admin"],
-    "tag:ci":     ["autogroup:admin"]
-  },
-  "acls": [
-    { "action": "accept", "src": ["tag:ci"], "dst": ["tag:runner:22"] }
-  ]
-}
-```
+Tailnet ACL (existing tagOwners + ACL rule allowing `tag:gh-deploy` to
+reach `tag:server:22`). The runner repo reuses the tailnet's existing
+`tag:server` and `tag:gh-deploy` tags; no new tags are introduced.
 
 ### Verifying the deploy
 
