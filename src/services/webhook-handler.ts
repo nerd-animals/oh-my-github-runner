@@ -80,20 +80,27 @@ export class WebhookHandler {
 
   async handle(rawBody: Buffer, headers: Headers): Promise<WebhookHandlerResult> {
     const signature = readHeader(headers, "x-hub-signature-256");
+    const deliveryId = readHeader(headers, "x-github-delivery") ?? "-";
+    const eventName = readHeader(headers, "x-github-event") ?? "-";
 
     if (!verifyHubSignature(this.deps.secret, rawBody, signature)) {
+      console.warn(
+        `[webhook] reject delivery=${deliveryId} event=${eventName} reason=invalid-signature`,
+      );
       return { status: 401, body: "invalid signature" };
     }
 
-    const deliveryId = readHeader(headers, "x-github-delivery");
-
-    if (deliveryId !== undefined && this.deps.deliveryDedup.markSeen(deliveryId)) {
+    if (deliveryId !== "-" && this.deps.deliveryDedup.markSeen(deliveryId)) {
+      console.log(
+        `[webhook] duplicate delivery=${deliveryId} event=${eventName}`,
+      );
       return { status: 200, body: "duplicate" };
     }
 
-    const eventName = readHeader(headers, "x-github-event");
-
-    if (eventName === undefined) {
+    if (eventName === "-") {
+      console.warn(
+        `[webhook] reject delivery=${deliveryId} reason=missing-event-header`,
+      );
       return { status: 400, body: "missing X-GitHub-Event" };
     }
 
@@ -102,19 +109,56 @@ export class WebhookHandler {
     try {
       payload = JSON.parse(rawBody.toString("utf8"));
     } catch {
+      console.warn(
+        `[webhook] reject delivery=${deliveryId} event=${eventName} reason=invalid-json`,
+      );
       return { status: 400, body: "invalid JSON" };
     }
+
+    console.log(
+      `[webhook] received delivery=${deliveryId} event=${eventName} ${describeSender(payload)}`,
+    );
 
     const dispatched = await this.toDispatchedEvent(eventName, payload);
 
     if (dispatched === null) {
+      console.log(
+        `[webhook] ignored delivery=${deliveryId} event=${eventName} reason=unsupported-or-skipped`,
+      );
       return { status: 200, body: "ignored" };
     }
 
     const action = this.deps.dispatcher.dispatch(dispatched);
+
+    this.logAction(deliveryId, eventName, action);
+
     await this.executeAction(action);
 
     return { status: 200, body: action.kind };
+  }
+
+  private logAction(
+    deliveryId: string,
+    eventName: string,
+    action: DispatchAction,
+  ): void {
+    if (action.kind === "enqueue") {
+      console.log(
+        `[webhook] enqueue delivery=${deliveryId} event=${eventName} instruction=${action.instructionId} agent=${action.agent} repo=${action.repo.owner}/${action.repo.name} ${action.source.kind}=${action.source.number} requestedBy=${action.requestedBy}`,
+      );
+      return;
+    }
+
+    if (action.kind === "reject") {
+      console.warn(
+        `[webhook] reject delivery=${deliveryId} event=${eventName} reason=${action.reason}`,
+      );
+      return;
+    }
+
+    console.log(
+      `[webhook] ignore delivery=${deliveryId} event=${eventName} reason=${action.reason}`,
+    );
   }
 
   private async toDispatchedEvent(
@@ -285,4 +329,22 @@ function readSender(
   }
 
   return { id: event.sender.id, login: event.sender.login };
+}
+
+function describeSender(payload: unknown): string {
+  if (typeof payload !== "object" || payload === null) {
+    return "sender=- repo=-";
+  }
+
+  const event = payload as WebhookPayloadCommon & {
+    action?: string;
+  };
+  const repo =
+    event.repository !== undefined
+      ? `${event.repository.owner.login}/${event.repository.name}`
+      : "-";
+  const sender = event.sender !== undefined ? event.sender.login : "-";
+  const action = event.action ?? "-";
+
+  return `action=${action} sender=${sender} repo=${repo}`;
 }

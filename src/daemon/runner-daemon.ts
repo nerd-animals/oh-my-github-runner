@@ -81,6 +81,10 @@ export class RunnerDaemon {
         instruction.revision,
       );
 
+      console.log(
+        `[daemon] start task=${task.taskId} instruction=${instruction.id} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
+      );
+
       const activeTask = this.runTask(startedTask, instruction).finally(() => {
         this.activeTasks.delete(task.taskId);
       });
@@ -167,6 +171,14 @@ export class RunnerDaemon {
       };
     }
 
+    if (result.status === "succeeded") {
+      console.log(`[daemon] succeed task=${task.taskId}`);
+    } else {
+      console.error(
+        `[daemon] fail task=${task.taskId} error=${result.errorSummary ?? "unknown"}`,
+      );
+    }
+
     await this.dependencies.queueStore.completeTask(task.taskId, result);
   }
 
@@ -182,11 +194,17 @@ export class RunnerDaemon {
         error.agentName,
         pausedUntil,
       );
+      console.warn(
+        `[daemon] rate-limited task=${task.taskId} agent=${error.agentName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+      );
       await this.dependencies.logStore.write(
         task.taskId,
         `rate-limited; paused agent '${error.agentName}' until ${new Date(pausedUntil).toISOString()}`,
       );
     } else {
+      console.warn(
+        `[daemon] rate-limited task=${task.taskId} agent=${error.agentName} (no state store)`,
+      );
       await this.dependencies.logStore.write(
         task.taskId,
         `rate-limited; reverted to queued (no state store configured)`,
