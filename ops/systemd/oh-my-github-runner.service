@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/oh-my-github-runner/current
+WorkingDirectory=/home/ubuntu/oh-my-github-runner
 EnvironmentFile=/etc/oh-my-github-runner/runner.env
-ExecStart=/usr/bin/node /opt/oh-my-github-runner/current/dist/src/index.js
+ExecStart=/usr/bin/node /home/ubuntu/oh-my-github-runner/dist/src/index.js
 Restart=always
 RestartSec=5
-User=runner
-Group=runner
+User=ubuntu
+Group=ubuntu
 
 [Install]
 WantedBy=multi-user.target

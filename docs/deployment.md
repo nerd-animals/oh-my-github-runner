@@ -7,10 +7,13 @@ Single Oracle VM deployment of the runner. Two long-running processes:
 - `cloudflared.service` — Cloudflare tunnel that exposes
   `https://oh-my-github-runner.darakbox.com` to the runner's local port
 
+The runner runs as the existing `ubuntu` system user. Code lives under
+that user's home directory; secrets live under `/etc`.
+
 ## Prerequisites
 
 - Ubuntu host with Node.js >= 20 installed
-- `git` available on `$PATH` for the runner user
+- `git` available on `$PATH`
 - A GitHub App with:
   - Permissions: Issues (RW), Pull requests (RW), Contents (RW), Metadata (R)
   - Subscribed events: Issues, Issue comment, Pull request review comment
@@ -19,43 +22,38 @@ Single Oracle VM deployment of the runner. Two long-running processes:
   - Private key downloaded to `/etc/oh-my-github-runner/github-app.pem`
 - `cloudflared` installed and authenticated against the
   `darakbox.com` zone, with a tunnel created
+- Tailscale up on the VM with `--ssh --advertise-tags=tag:server`
 
 ## Layout
 
 ```
-/opt/oh-my-github-runner/current/   # checked-out source + dist/
-/etc/oh-my-github-runner/runner.env # env file (see .env.example)
-/etc/oh-my-github-runner/github-app.pem
-/etc/cloudflared/config.yml         # tunnel ingress
-/var/lib/oh-my-github-runner/var/   # if you prefer to host state outside the source tree
+/home/ubuntu/oh-my-github-runner/        # cloned source + dist/ + var/
+/etc/oh-my-github-runner/runner.env      # env file (see .env.example)
+/etc/oh-my-github-runner/github-app.pem  # GitHub App private key
+/etc/cloudflared/config.yml              # tunnel ingress
 ```
-
-If you keep `var/` inside the source tree, ensure the `runner` system user
-owns `/opt/oh-my-github-runner/current/var/`.
 
 ## Install
 
 ```sh
-sudo useradd -r -s /usr/sbin/nologin runner
-sudo mkdir -p /opt/oh-my-github-runner/current /etc/oh-my-github-runner
-sudo chown runner:runner /opt/oh-my-github-runner/current
+sudo mkdir -p /etc/oh-my-github-runner
 
-# fetch + build
-sudo -u runner git clone https://github.com/nerd-animals/oh-my-github-runner.git \
-  /opt/oh-my-github-runner/current
-cd /opt/oh-my-github-runner/current
-sudo -u runner npm ci
-sudo -u runner npm run compile
+# fetch + first build
+git clone https://github.com/SanGyuk-Raccoon/oh-my-github-runner.git \
+  ~/oh-my-github-runner
+cd ~/oh-my-github-runner
+npm ci
+npm run compile
 
 # env file
 sudo cp .env.example /etc/oh-my-github-runner/runner.env
 sudo chmod 640 /etc/oh-my-github-runner/runner.env
-sudo chown root:runner /etc/oh-my-github-runner/runner.env
+sudo chown root:ubuntu /etc/oh-my-github-runner/runner.env
 sudo $EDITOR /etc/oh-my-github-runner/runner.env
 
-# private key
+# private key (upload from local first via scp or paste-in)
 sudo chmod 640 /etc/oh-my-github-runner/github-app.pem
-sudo chown root:runner /etc/oh-my-github-runner/github-app.pem
+sudo chown root:ubuntu /etc/oh-my-github-runner/github-app.pem
 
 # systemd
 sudo cp ops/systemd/oh-my-github-runner.service /etc/systemd/system/
@@ -117,17 +115,12 @@ without touching the running daemon.
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --ssh --advertise-tags=tag:server
 
-# 2) Sudoers — the SSH user (ubuntu by default) gets only what deploy needs
+# 2) Sudoers — ubuntu only needs to restart the runner service
 sudo install -m 440 /dev/stdin /etc/sudoers.d/oh-my-github-runner-deploy <<'SUDO'
-ubuntu ALL=(runner) NOPASSWD: /usr/bin/git, /usr/bin/npm
-ubuntu ALL=(root)   NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+ubuntu ALL=(root) NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
 SUDO
 sudo visudo -c   # syntax check; non-zero exit = revert above
 ```
-
-If the SSH login user differs from `ubuntu` (e.g. the tailnet ACL maps
-`tag:gh-deploy` → `tag:server` as a different login), substitute that
-login throughout the sudoers file and the GitHub Variable.
 
 ### One-time GitHub setup
 
@@ -141,16 +134,16 @@ Hostname (`ubuntu@github-runner`) is hardcoded in
 changes, edit the workflow.
 
 Tailnet ACL must allow `tag:gh-deploy` → `tag:server` over SSH and
-permit the chosen login user under Tailscale SSH (`autogroup:nonroot` or
-explicit `ubuntu`). Both tags reuse the tailnet's existing definitions;
-no new tags are introduced for this repo.
+permit `ubuntu` under Tailscale SSH (`autogroup:nonroot` or explicit
+`ubuntu`). Both tags reuse the tailnet's existing definitions; no new
+tags are introduced for this repo.
 
 ### Verifying the deploy
 
 ```sh
 # After pushing to main, watch the workflow run, then on the VM:
 journalctl -u oh-my-github-runner.service -n 50 -f
-git -C /opt/oh-my-github-runner/current log -1 --format='%h %s'
+git -C ~/oh-my-github-runner log -1 --format='%h %s'
 ```
 
 If the deploy script no-ops because the VM is already at the requested
@@ -162,8 +155,8 @@ left untouched.
 
 - Logs: `journalctl -u oh-my-github-runner.service -f`
 - Tunnel logs: `journalctl -u cloudflared.service -f`
-- Manual rate-limit reset: `sudo rm /opt/oh-my-github-runner/current/var/queue/state.json`
+- Manual rate-limit reset: `rm ~/oh-my-github-runner/var/queue/state.json`
 - Recovery from crash: `recoverRunningTasks` runs at startup and marks
   in-flight tasks as failed; orphaned workspaces are not cleaned automatically
   in v1
-- Manual deploy: `ssh deploy@<tailnet-host> 'sudo /opt/oh-my-github-runner/current/ops/scripts/deploy.sh'`
+- Manual deploy: `ssh ubuntu@github-runner 'bash ~/oh-my-github-runner/ops/scripts/deploy.sh'`
