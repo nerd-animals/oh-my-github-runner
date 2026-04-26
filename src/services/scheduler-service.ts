@@ -8,12 +8,14 @@ export interface SchedulerServiceOptions {
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
   instructionsById: Record<string, InstructionDefinition>;
+  pausedAgents?: ReadonlySet<string>;
 }
 
 export class SchedulerService {
   constructor(private readonly options: SchedulerServiceOptions) {}
 
   selectNextTasks(input: SelectNextTasksInput): string[] {
+    const pausedAgents = input.pausedAgents ?? new Set<string>();
     const runningTasks = input.tasks.filter((task) => task.status === "running");
     const queuedTasks = input.tasks.filter((task) => task.status === "queued");
     const availableSlots = this.options.maxConcurrency - runningTasks.length;
@@ -33,6 +35,10 @@ export class SchedulerService {
     for (const task of queuedTasks) {
       if (selected.length >= availableSlots) {
         break;
+      }
+
+      if (pausedAgents.has(task.agent)) {
+        continue;
       }
 
       const instruction = input.instructionsById[task.instructionId];

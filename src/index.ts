@@ -12,6 +12,8 @@ import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
+import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detecting-agent-runner.js";
+import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import {
@@ -20,6 +22,7 @@ import {
 } from "./services/agent-registry.js";
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
+import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -81,16 +84,41 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       : {}),
   });
   const agentConfig = loadAgentConfigFromEnv(process.env);
-  const agentRegistry = new AgentRegistry(
-    agentConfig.agents.map((name) => ({
-      name,
-      runner: new HeadlessCommandAgentRunner({
+  const agentDefinitionsDir = path.join(
+    runnerRoot,
+    "definitions",
+    "agents",
+  );
+  const agentEntries = await Promise.all(
+    agentConfig.agents.map(async (name) => {
+      const rateLimitConfig = await loadAgentRateLimitConfig(
+        agentDefinitionsDir,
+        name,
+      );
+      const inner = new HeadlessCommandAgentRunner({
         command: agentConfig.commands[name]!.command,
         args: agentConfig.commands[name]!.args,
         processRunner,
-      }),
-    })),
-    agentConfig.defaultAgent,
+      });
+
+      return {
+        name,
+        runner: new RateLimitDetectingAgentRunner({
+          inner,
+          agentName: name,
+          config: rateLimitConfig,
+        }),
+      };
+    }),
+  );
+  const agentRegistry = new AgentRegistry(agentEntries, agentConfig.defaultAgent);
+
+  const rateLimitStateStore = new RateLimitStateStore({
+    filePath: path.join(runnerRoot, "var", "queue", "state.json"),
+  });
+  const rateLimitCooldownMs = parsePositiveInt(
+    process.env.RATE_LIMIT_COOLDOWN_MS,
+    60 * 60 * 1000,
   );
 
   const queueStore = new FileQueueStore({
@@ -113,6 +141,9 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     }),
     logStore,
     pollIntervalMs,
+    rateLimitStateStore,
+    rateLimitCooldownMs,
+    registeredAgents: agentConfig.agents,
   });
 
   const enqueueService = new EnqueueService({

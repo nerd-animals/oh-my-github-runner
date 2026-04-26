@@ -92,6 +92,20 @@ export class FileQueueStore implements QueueStore {
     return task;
   }
 
+  async revertToQueued(taskId: string): Promise<TaskRecord> {
+    const tasks = await this.readTasks();
+    const task = this.requireTask(tasks, taskId);
+
+    task.status = "queued";
+    delete task.startedAt;
+    delete task.finishedAt;
+    delete task.errorSummary;
+    delete task.instructionRevision;
+
+    await this.writeTasks(tasks);
+    return task;
+  }
+
   async recoverRunningTasks(errorSummary: string): Promise<void> {
     const tasks = await this.readTasks();
     let changed = false;

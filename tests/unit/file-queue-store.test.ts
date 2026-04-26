@@ -117,6 +117,35 @@ describe("FileQueueStore", () => {
     }
   });
 
+  test("revertToQueued resets a running task back to queued and clears revision", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({ dataDir: root });
+      const task = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-implement",
+        agent: "claude",
+        requestedBy: "test",
+      });
+
+      await store.startTask(task.taskId, 1);
+      const reverted = await store.revertToQueued(task.taskId);
+
+      assert.equal(reverted.status, "queued");
+      assert.equal(reverted.instructionRevision, undefined);
+      assert.equal(reverted.startedAt, undefined);
+      assert.equal(reverted.finishedAt, undefined);
+      assert.equal(reverted.errorSummary, undefined);
+
+      const reloaded = await store.getTask(task.taskId);
+      assert.equal(reloaded?.status, "queued");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("recovers stale running tasks as failed", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 

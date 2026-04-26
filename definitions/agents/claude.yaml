@@ -1,0 +1,5 @@
+# Rate-limit signature for the claude agent.
+# Both lists are empty until the actual CLI behaviour is observed.
+# See plan TODO H2.
+exit_codes: []
+stderr_patterns: []

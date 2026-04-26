@@ -97,6 +97,23 @@ describe("SchedulerService", () => {
     assert.deepEqual(selected, ["task_queued"]);
   });
 
+  test("skips queued tasks whose agent is paused", () => {
+    const scheduler = new SchedulerService({ maxConcurrency: 2 });
+
+    const selected = scheduler.selectNextTasks({
+      tasks: [
+        createTask("task_paused", "issue-comment-reply", "queued", "repo-a"),
+        createTask("task_active", "issue-comment-reply", "queued", "repo-b"),
+      ],
+      instructionsById: {
+        "issue-comment-reply": observeInstruction,
+      },
+      pausedAgents: new Set(["claude"]),
+    });
+
+    assert.deepEqual(selected, []);
+  });
+
   test("fills free slots with executable queued work in created order", () => {
     const scheduler = new SchedulerService({ maxConcurrency: 2 });
 

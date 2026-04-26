@@ -45,6 +45,9 @@ describe("EnqueueService", () => {
         completeTask: async () => {
           throw new Error("should not be called");
         },
+        revertToQueued: async () => {
+          throw new Error("should not be called");
+        },
         recoverRunningTasks: async () => {},
       },
     });
@@ -84,6 +87,9 @@ describe("EnqueueService", () => {
           throw new Error("should not be called");
         },
         completeTask: async () => {
+          throw new Error("should not be called");
+        },
+        revertToQueued: async () => {
           throw new Error("should not be called");
         },
         recoverRunningTasks: async () => {},
