@@ -24,7 +24,9 @@ fi
 echo "Updating $current -> $remote"
 
 git reset --hard "$remote"
-npm ci --omit=dev --silent
+# Keep dev deps because tsc (typescript) lives in devDependencies and is
+# required for `npm run compile`.
+npm ci --silent
 npm run compile --silent
 
 sudo /bin/systemctl restart "$SERVICE"
