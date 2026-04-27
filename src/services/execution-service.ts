@@ -29,10 +29,10 @@ export interface ExecuteTaskInput {
   instruction: InstructionDefinition;
 }
 
-export interface ExecuteTaskResult {
-  status: "succeeded" | "failed";
-  errorSummary?: string;
-}
+export type ExecuteTaskResult =
+  | { status: "succeeded" }
+  | { status: "failed"; errorSummary: string }
+  | { status: "rate_limited"; agentName: string };
 
 export class ExecutionService {
   private readonly promptBuilder = new ExecutionPromptBuilder();
@@ -106,7 +106,11 @@ export class ExecutionService {
           }),
         });
 
-      if (agentResult.exitCode !== 0) {
+      if (agentResult.kind === "rate_limited") {
+        return { status: "rate_limited", agentName: agentResult.agentName };
+      }
+
+      if (agentResult.kind === "failed") {
         return this.fail(
           input.task.taskId,
           agentResult.stderr || agentResult.stdout,
@@ -207,7 +211,11 @@ export class ExecutionService {
           }),
         });
 
-      if (agentResult.exitCode !== 0) {
+      if (agentResult.kind === "rate_limited") {
+        return { status: "rate_limited", agentName: agentResult.agentName };
+      }
+
+      if (agentResult.kind === "failed") {
         return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);
       }
 
@@ -286,7 +294,11 @@ export class ExecutionService {
           }),
         });
 
-      if (agentResult.exitCode !== 0) {
+      if (agentResult.kind === "rate_limited") {
+        return { status: "rate_limited", agentName: agentResult.agentName };
+      }
+
+      if (agentResult.kind === "failed") {
         const summary = (agentResult.stderr || agentResult.stdout).trim();
         await this.postSourceComment(
           input,

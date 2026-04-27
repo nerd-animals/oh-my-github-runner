@@ -3,7 +3,6 @@ import { describe, test } from "node:test";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
-import { RateLimitedError } from "../../src/infra/agent/rate-limit-detecting-agent-runner.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
 
 const instruction: InstructionDefinition = {
@@ -112,7 +111,7 @@ describe("RunnerDaemon", () => {
     ]);
   });
 
-  test("reverts to queued and pauses the agent when execution throws RateLimitedError", async () => {
+  test("reverts to queued and pauses the agent when execution returns a rate_limited result", async () => {
     const calls: string[] = [];
     let currentTask = createTask("queued");
     const pauses: Array<{ agent: string; pausedUntil: number }> = [];
@@ -148,7 +147,7 @@ describe("RunnerDaemon", () => {
       executionService: {
         execute: async () => {
           calls.push("execute");
-          throw new RateLimitedError("claude");
+          return { status: "rate_limited", agentName: "claude" };
         },
       },
       logStore: {
@@ -236,7 +235,7 @@ describe("RunnerDaemon", () => {
     assert.match(notified[0]?.errorSummary ?? "", /getSourceContext/);
   });
 
-  test("does not notify task failure on RateLimitedError", async () => {
+  test("does not notify task failure on a rate_limited result", async () => {
     const notified: string[] = [];
     let currentTask = createTask("queued");
 
@@ -265,9 +264,7 @@ describe("RunnerDaemon", () => {
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       executionService: {
-        execute: async () => {
-          throw new RateLimitedError("claude");
-        },
+        execute: async () => ({ status: "rate_limited", agentName: "claude" }),
       },
       logStore: {
         write: async () => {},

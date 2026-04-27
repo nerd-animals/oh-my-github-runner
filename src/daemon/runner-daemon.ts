@@ -3,7 +3,6 @@ import type { InstructionLoader } from "../domain/ports/instruction-loader.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { TaskRecord } from "../domain/task.js";
-import { RateLimitedError } from "../infra/agent/rate-limit-detecting-agent-runner.js";
 import type { RateLimitStateStore } from "../infra/queue/rate-limit-state-store.js";
 import type { ExecuteTaskResult, ExecutionService } from "../services/execution-service.js";
 import type { SchedulerService } from "../services/scheduler-service.js";
@@ -164,11 +163,6 @@ export class RunnerDaemon {
         instruction,
       });
     } catch (error) {
-      if (error instanceof RateLimitedError) {
-        await this.handleRateLimit(task, error);
-        return;
-      }
-
       result = {
         status: "failed",
         errorSummary:
@@ -176,18 +170,23 @@ export class RunnerDaemon {
       };
     }
 
+    if (result.status === "rate_limited") {
+      await this.handleRateLimit(task, result.agentName);
+      return;
+    }
+
     if (result.status === "succeeded") {
       console.log(`[daemon] succeed task=${task.taskId}`);
     } else {
       console.error(
-        `[daemon] fail task=${task.taskId} error=${result.errorSummary ?? "unknown"}`,
+        `[daemon] fail task=${task.taskId} error=${result.errorSummary}`,
       );
 
       if (this.dependencies.notifyTaskFailure !== undefined) {
         try {
           await this.dependencies.notifyTaskFailure(
             task,
-            result.errorSummary ?? "unknown",
+            result.errorSummary,
           );
         } catch (error) {
           this.warn(
@@ -204,26 +203,26 @@ export class RunnerDaemon {
 
   private async handleRateLimit(
     task: TaskRecord,
-    error: RateLimitedError,
+    agentName: string,
   ): Promise<void> {
     await this.dependencies.queueStore.revertToQueued(task.taskId);
 
     if (this.dependencies.rateLimitStateStore !== undefined) {
       const pausedUntil = this.now() + this.rateLimitCooldownMs;
       await this.dependencies.rateLimitStateStore.pause(
-        error.agentName,
+        agentName,
         pausedUntil,
       );
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${error.agentName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+        `[daemon] rate-limited task=${task.taskId} agent=${agentName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
-        `rate-limited; paused agent '${error.agentName}' until ${new Date(pausedUntil).toISOString()}`,
+        `rate-limited; paused agent '${agentName}' until ${new Date(pausedUntil).toISOString()}`,
       );
     } else {
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${error.agentName} (no state store)`,
+        `[daemon] rate-limited task=${task.taskId} agent=${agentName} (no state store)`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
