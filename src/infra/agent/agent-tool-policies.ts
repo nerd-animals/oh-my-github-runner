@@ -13,5 +13,7 @@ export function buildClaudeToolArgs(mode: ExecutionMode): string[] {
   return [
     "--allowed-tools",
     "Read Grep Glob Edit Write MultiEdit Bash(gh:*) Bash(git:*) Bash(npm:*) Bash(node:*)",
+    "--disallowed-tools",
+    "Bash(gh pr merge:*)",
   ];
 }
