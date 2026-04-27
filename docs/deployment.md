@@ -151,7 +151,7 @@ tags are introduced for this repo.
 ```sh
 # After pushing to main, watch the workflow run, then on the VM:
 journalctl -u oh-my-github-runner.service -n 50 -f
-git -C ~/oh-my-github-runner log -1 --format='%h %s'
+git -C /home/ubuntu/runner-deploy log -1 --format='%h %s'
 ```
 
 If the deploy script no-ops because the VM is already at the requested
@@ -159,12 +159,43 @@ commit (e.g., a manual `git pull` ran first), the workflow logs
 `Already at <sha>; nothing to deploy.` and exits 0. The service is
 left untouched.
 
+## Working on the runner from the VM
+
+```
+/home/ubuntu/runner-deploy/        # what systemd runs — do NOT edit by hand
+/home/ubuntu/oh-my-github-runner/  # dev clone (optional) — edit here
+```
+
+The deploy script `git reset --hard origin/main` on `runner-deploy`
+unconditionally on every run, so any uncommitted edit there is lost.
+Edit code in the dev clone (or off the VM entirely), commit, push,
+let the workflow propagate it. The dev clone exists only because Claude
+Code runs on this VM; if you operate from a laptop you can skip it.
+
 ## Operational tips
 
 - Logs: `journalctl -u oh-my-github-runner.service -f`
 - Tunnel logs: `journalctl -u cloudflared.service -f`
-- Manual rate-limit reset: `rm ~/oh-my-github-runner/var/queue/state.json`
+- Current commit on the VM: `git -C /home/ubuntu/runner-deploy log -1 --oneline`
+- Manual rate-limit reset: `rm /home/ubuntu/runner-deploy/var/queue/state.json`
 - Recovery from crash: `recoverRunningTasks` runs at startup and marks
-  in-flight tasks as failed; orphaned workspaces are not cleaned automatically
-  in v1
-- Manual deploy: `ssh ubuntu@github-runner 'bash ~/oh-my-github-runner/ops/scripts/deploy.sh'`
+  in-flight tasks as failed. The daemon's `notifyTaskFailure` callback
+  posts a `Task <id> failed before completion: <summary>` comment to the
+  originating issue or PR. Orphaned workspaces under `var/workspaces/`
+  are not cleaned automatically in v1.
+- Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
+- When deploying a change that bumps an instruction `revision` in
+  `definitions/instructions/*.yaml`, prefer to deploy when the queue is
+  empty (`jq '[.[] | select(.status=="running" or .status=="queued")] | length' var/queue/tasks.json`).
+  In-flight tasks pinned to the old revision will keep running with the
+  old prompt; new tasks pick up the new revision.
+
+## Recommended GitHub setup (not enforced by code)
+
+- **Branch protection on `main`**: require pull request, disallow direct
+  push, disallow force push. The runner never pushes directly to `main`
+  (`buildBranchName` always produces `ai/<kind>-<number>`), but server-
+  side branch protection is the backstop if a future change to the
+  runner ever forgets that invariant.
+- **Required status checks on PRs**: none in v1; build/test runs
+  locally on the VM only at deploy time.
