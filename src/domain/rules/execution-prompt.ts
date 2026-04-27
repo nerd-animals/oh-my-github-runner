@@ -1,9 +1,9 @@
-import type { GitHubComment, GitHubSourceContext } from "../../domain/github.js";
+import type { GitHubComment, GitHubSourceContext } from "../github.js";
 import type {
   ExecutionMode,
   InstructionDefinition,
-} from "../../domain/instruction.js";
-import type { TaskRecord } from "../../domain/task.js";
+} from "../instruction.js";
+import type { TaskRecord } from "../task.js";
 
 export interface BuildExecutionPromptInput {
   task: TaskRecord;

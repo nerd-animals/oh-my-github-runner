@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { parseCommand } from "../../src/services/command-parser.js";
+import { parseCommand } from "../../src/domain/rules/command-parser.js";
 
 describe("parseCommand", () => {
   test("returns null for an empty body", () => {

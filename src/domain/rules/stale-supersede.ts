@@ -1,4 +1,4 @@
-import type { TaskRecord } from "../domain/task.js";
+import type { TaskRecord } from "../task.js";
 
 /**
  * Returns true when an observe task should skip writing back its result
