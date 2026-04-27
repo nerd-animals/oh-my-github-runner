@@ -30,6 +30,7 @@ const observeInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
+  workflow: "observe",
   context: {},
   permissions: {
     codeRead: true,
@@ -49,6 +50,7 @@ const mutateInstruction: InstructionDefinition = {
   ...observeInstruction,
   id: "issue-implement",
   mode: "mutate",
+  workflow: "mutate",
   permissions: {
     codeRead: true,
     codeWrite: true,

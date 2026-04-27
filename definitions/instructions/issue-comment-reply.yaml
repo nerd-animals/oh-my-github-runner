@@ -1,7 +1,8 @@
 id: issue-comment-reply
-revision: 1
+revision: 2
 source_kind: issue
 mode: observe
+workflow: observe
 context:
   include_issue_body: true
   include_issue_comments: true

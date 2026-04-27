@@ -2,6 +2,8 @@ import type { SourceKind } from "./task.js";
 
 export type ExecutionMode = "observe" | "mutate";
 
+export type InstructionWorkflow = "observe" | "mutate" | "pr_implement";
+
 export interface InstructionContext {
   includeIssueBody?: boolean;
   includeIssueComments?: boolean;
@@ -29,6 +31,7 @@ export interface InstructionDefinition {
   revision: number;
   sourceKind: SourceKind;
   mode: ExecutionMode;
+  workflow: InstructionWorkflow;
   context: InstructionContext;
   githubActions: string[];
   permissions: InstructionPermissions;

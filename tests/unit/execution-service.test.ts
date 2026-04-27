@@ -11,6 +11,7 @@ const observeInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
+  workflow: "observe",
   context: {
     includeIssueBody: true,
     includeIssueComments: true,
@@ -34,6 +35,7 @@ const mutateInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "issue",
   mode: "mutate",
+  workflow: "mutate",
   context: {
     includeIssueBody: true,
     includeIssueComments: true,
@@ -58,6 +60,7 @@ const prImplementInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "pull_request",
   mode: "mutate",
+  workflow: "pr_implement",
   context: {
     includePrBody: true,
     includePrComments: true,
@@ -82,6 +85,7 @@ const pullRequestObserveInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "pull_request",
   mode: "observe",
+  workflow: "observe",
   context: {
     includePrBody: true,
     includePrComments: true,

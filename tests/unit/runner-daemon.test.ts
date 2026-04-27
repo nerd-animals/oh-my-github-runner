@@ -10,6 +10,7 @@ const instruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "issue",
   mode: "observe",
+  workflow: "observe",
   context: {},
   permissions: {
     codeRead: true,
