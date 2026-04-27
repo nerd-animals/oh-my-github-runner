@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import type { AgentRunInput, AgentRunResult } from "../../src/domain/agent.js";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import type { AgentRunner } from "../../src/infra/agent/agent-runner.js";
+import type { AgentRunner } from "../../src/domain/ports/agent-runner.js";
 import {
   RateLimitDetectingAgentRunner,
   RateLimitedError,

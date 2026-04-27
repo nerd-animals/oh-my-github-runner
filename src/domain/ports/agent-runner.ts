@@ -1,4 +1,4 @@
-import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
+import type { AgentRunInput, AgentRunResult } from "../agent.js";
 
 export interface AgentRunner {
   run(input: AgentRunInput): Promise<AgentRunResult>;

@@ -8,7 +8,7 @@ import type {
   ProcessRunner,
   RunProcessInput,
   RunProcessResult,
-} from "../../src/infra/platform/process-runner.js";
+} from "../../src/domain/ports/process-runner.js";
 
 const instruction: InstructionDefinition = {
   id: "issue-comment-reply",

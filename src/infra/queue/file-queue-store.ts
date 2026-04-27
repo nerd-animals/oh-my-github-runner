@@ -2,7 +2,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { hasSameSource, type QueueTaskInput } from "../../domain/queue-task.js";
 import type { TaskRecord } from "../../domain/task.js";
-import type { CompleteTaskInput, QueueStore } from "./queue-store.js";
+import type { CompleteTaskInput, QueueStore } from "../../domain/ports/queue-store.js";
 
 export interface FileQueueStoreOptions {
   dataDir: string;

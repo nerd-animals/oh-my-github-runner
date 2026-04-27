@@ -2,9 +2,9 @@ import type {
   CreatePullRequestInput,
   GitHubPullRequestSummary,
   GitHubSourceContext,
-} from "../../domain/github.js";
-import type { InstructionContext } from "../../domain/instruction.js";
-import type { RepoRef, SourceRef } from "../../domain/task.js";
+} from "../github.js";
+import type { InstructionContext } from "../instruction.js";
+import type { RepoRef, SourceRef } from "../task.js";
 
 export interface PullRequestStateInfo {
   number: number;

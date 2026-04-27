@@ -1,8 +1,9 @@
-import type { InstructionDefinition, InstructionLoader } from "../domain/instruction.js";
+import type { InstructionDefinition } from "../domain/instruction.js";
+import type { InstructionLoader } from "../domain/ports/instruction-loader.js";
+import type { LogStore } from "../domain/ports/log-store.js";
+import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { TaskRecord } from "../domain/task.js";
 import { RateLimitedError } from "../infra/agent/rate-limit-detecting-agent-runner.js";
-import type { LogStore } from "../infra/logs/log-store.js";
-import type { QueueStore } from "../infra/queue/queue-store.js";
 import type { RateLimitStateStore } from "../infra/queue/rate-limit-state-store.js";
 import type { ExecuteTaskResult, ExecutionService } from "../services/execution-service.js";
 import type { SchedulerService } from "../services/scheduler-service.js";

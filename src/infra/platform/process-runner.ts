@@ -1,23 +1,9 @@
 import { spawn } from "node:child_process";
-
-export interface RunProcessInput {
-  command: string;
-  args?: string[];
-  cwd?: string;
-  env?: NodeJS.ProcessEnv;
-  stdin?: string;
-  timeoutMs?: number;
-}
-
-export interface RunProcessResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface ProcessRunner {
-  run(input: RunProcessInput): Promise<RunProcessResult>;
-}
+import type {
+  ProcessRunner,
+  RunProcessInput,
+  RunProcessResult,
+} from "../../domain/ports/process-runner.js";
 
 export class ChildProcessRunner implements ProcessRunner {
   async run(input: RunProcessInput): Promise<RunProcessResult> {
