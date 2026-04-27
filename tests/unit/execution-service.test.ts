@@ -589,7 +589,9 @@ describe("ExecutionService", () => {
     assert.match(postedComments[0] ?? "", /https:\/\/example\.test\/pr\/15/);
   });
 
-  test("marks mutate work as succeeded without PR when no diff exists", async () => {
+  test("marks mutate work as succeeded without PR and posts a no-op comment when no diff exists", async () => {
+    const postedComments: string[] = [];
+
     const service = new ExecutionService({
       githubClient: {
         getSourceContext: async () => issueContext,
@@ -608,7 +610,9 @@ describe("ExecutionService", () => {
           slug: "bot",
         }),
         getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
+        postIssueComment: async (_repo, _number, body) => {
+          postedComments.push(body);
+        },
         postPullRequestComment: async () => {},
         findOpenPullRequestByBranch: async () => null,
         createPullRequest: async () => {
@@ -663,6 +667,168 @@ describe("ExecutionService", () => {
     });
 
     assert.equal(result.status, "succeeded");
+    assert.equal(postedComments.length, 1);
+    assert.match(postedComments[0] ?? "", /no changes were needed/);
+  });
+
+  test("mutate posts a fallback comment and fails when the agent exits non-zero", async () => {
+    const postedComments: string[] = [];
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => issueContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        getInstallationAccessToken: async () => "test-token",
+        postIssueComment: async (_repo, _number, body) => {
+          postedComments.push(body);
+        },
+        postPullRequestComment: async () => {},
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => {
+          throw new Error("should not create a PR");
+        },
+        updatePullRequest: async () => {
+          throw new Error("should not update a PR");
+        },
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
+        hasChanges: async () => false,
+        commitAll: async () => {
+          throw new Error("must not commit when agent failed");
+        },
+        pushBranch: async () => {
+          throw new Error("must not push when agent failed");
+        },
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 2,
+            stdout: "",
+            stderr: "boom: something blew up",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("issue-implement"),
+      instruction: mutateInstruction,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(postedComments.length, 1);
+    assert.match(postedComments[0] ?? "", /agent exited with code 2/);
+    assert.match(postedComments[0] ?? "", /boom: something blew up/);
+  });
+
+  test("mutate posts a fallback comment and fails when push throws", async () => {
+    const postedComments: string[] = [];
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => issueContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        getInstallationAccessToken: async () => "test-token",
+        postIssueComment: async (_repo, _number, body) => {
+          postedComments.push(body);
+        },
+        postPullRequestComment: async () => {},
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => {
+          throw new Error("must not create a PR when push failed");
+        },
+        updatePullRequest: async () => {
+          throw new Error("must not update a PR when push failed");
+        },
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
+        hasChanges: async () => true,
+        commitAll: async () => {},
+        pushBranch: async () => {
+          throw new Error("non-fast-forward push rejected");
+        },
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Implemented",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("issue-implement"),
+      instruction: mutateInstruction,
+    });
+
+    assert.equal(result.status, "failed");
+    assert.equal(postedComments.length, 1);
+    assert.match(postedComments[0] ?? "", /failed to publish result/);
+    assert.match(postedComments[0] ?? "", /non-fast-forward/);
   });
 
   test("pr-implement pushes commits to PR head and posts a status comment without creating a new PR", async () => {
