@@ -76,7 +76,7 @@ describe("ExecutionPromptBuilder", () => {
     assert.match(prompt, /runner does not write back/);
   });
 
-  test("mutate prompts allow push and tell the agent to commit, push, and open the PR itself", () => {
+  test("mutate prompts allow push and gh pr create but tell the agent not to merge", () => {
     const prompt = new ExecutionPromptBuilder().build({
       task: baseTask,
       instruction: mutateInstruction,
@@ -88,5 +88,7 @@ describe("ExecutionPromptBuilder", () => {
     assert.match(prompt, /git push/);
     assert.match(prompt, /gh pr create/);
     assert.match(prompt, /server-protected/);
+    assert.match(prompt, /MUST NOT merge/);
+    assert.match(prompt, /gh pr merge.*blocked/);
   });
 });
