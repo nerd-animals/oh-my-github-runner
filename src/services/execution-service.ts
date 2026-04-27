@@ -226,6 +226,16 @@ export class ExecutionService {
         body,
       });
 
+      const dirty =
+        await this.dependencies.workspaceManager.hasChanges(workspace);
+
+      if (dirty) {
+        await this.dependencies.logStore.write(
+          input.task.taskId,
+          "WARN: observe agent left workspace modifications; observe-mode policy violated",
+        );
+      }
+
       await this.dependencies.logStore.write(input.task.taskId, "observe completed");
       return { status: "succeeded" };
     } finally {

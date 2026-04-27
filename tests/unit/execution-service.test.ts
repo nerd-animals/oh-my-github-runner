@@ -399,6 +399,92 @@ describe("ExecutionService", () => {
     assert.match(postedComments[0] ?? "", /issue-comment-reply r1/);
   });
 
+  test("observe logs a WARN if the workspace is dirty after the agent finishes", async () => {
+    const logs: Array<{ taskId: string; message: string }> = [];
+
+    const service = new ExecutionService({
+      githubClient: {
+        getSourceContext: async () => issueContext,
+        getDefaultBranch: async () => "main",
+        getPullRequestState: async () => ({
+          number: 0,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+        getIssueLabels: async () => ({ labels: [] }),
+        getAppBotInfo: async () => ({
+          id: 1,
+          login: "bot[bot]",
+          slug: "bot",
+        }),
+        getInstallationAccessToken: async () => "test-token",
+        postIssueComment: async () => {},
+        postPullRequestComment: async () => {},
+        findOpenPullRequestByBranch: async () => null,
+        createPullRequest: async () => ({
+          number: 1,
+          url: "https://example.test/pr/1",
+          branchName: "ai/issue-100",
+        }),
+        updatePullRequest: async () => ({
+          number: 1,
+          url: "https://example.test/pr/1",
+          branchName: "ai/issue-100",
+        }),
+      },
+      workspaceManager: {
+        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
+        prepareMutateWorkspace: async () => ({
+          workspacePath: "/tmp/mutate",
+          branchName: "ai/issue-100",
+        }),
+        preparePrImplementWorkspace: async () => ({
+          workspacePath: "/tmp/pr-implement",
+          branchName: "feature/x",
+        }),
+        hasChanges: async () => true,
+        commitAll: async () => {},
+        pushBranch: async () => {},
+        cleanupWorkspace: async () => {},
+      },
+      agentRegistry: {
+        resolve: () => ({
+          run: async () => ({
+            exitCode: 0,
+            stdout: "Observed",
+            stderr: "",
+          }),
+        }),
+      },
+      logStore: {
+        write: async (taskId, message) => {
+          logs.push({ taskId, message });
+        },
+        cleanupExpired: async () => {},
+      },
+      queueStore: {
+        listTasks: async () => [],
+      },
+    });
+
+    const result = await service.execute({
+      task: createTask("issue-comment-reply"),
+      instruction: observeInstruction,
+    });
+
+    assert.equal(result.status, "succeeded");
+    assert.ok(
+      logs.some((entry) =>
+        entry.message.includes(
+          "observe agent left workspace modifications",
+        ),
+      ),
+      `expected WARN log, got: ${logs.map((l) => l.message).join(" | ")}`,
+    );
+  });
+
   test("skips observe write-back when a newer task supersedes it", async () => {
     const postedComments: string[] = [];
 
