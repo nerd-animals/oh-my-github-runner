@@ -253,13 +253,28 @@ export class ExecutionService {
         });
 
       if (agentResult.exitCode !== 0) {
-        return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);
+        const summary = (agentResult.stderr || agentResult.stdout).trim();
+        await this.postSourceComment(
+          input,
+          this.withInstructionFooter(
+            `Ran \`/claude implement\`: agent exited with code ${agentResult.exitCode}.\n\n${truncate(summary, 1500)}`,
+            input.instruction,
+          ),
+        );
+        return this.fail(input.task.taskId, summary);
       }
 
       const hasChanges =
         await this.dependencies.workspaceManager.hasChanges(workspace);
 
       if (!hasChanges) {
+        await this.postSourceComment(
+          input,
+          this.withInstructionFooter(
+            "Ran `/claude implement`: no changes were needed.",
+            input.instruction,
+          ),
+        );
         await this.dependencies.logStore.write(
           input.task.taskId,
           "mutate completed with no changes",
@@ -267,39 +282,80 @@ export class ExecutionService {
         return { status: "succeeded" };
       }
 
-      await this.dependencies.workspaceManager.commitAll(
-        workspace,
-        this.buildCommitMessage(input.task),
-      );
-      const mutateToken =
-        await this.dependencies.githubClient.getInstallationAccessToken(
-          input.task.repo,
+      try {
+        await this.dependencies.workspaceManager.commitAll(
+          workspace,
+          this.buildCommitMessage(input.task),
         );
-      await this.dependencies.workspaceManager.pushBranch(workspace, {
-        installationToken: mutateToken,
-      });
+        const mutateToken =
+          await this.dependencies.githubClient.getInstallationAccessToken(
+            input.task.repo,
+          );
+        await this.dependencies.workspaceManager.pushBranch(workspace, {
+          installationToken: mutateToken,
+        });
 
-      const prBody = this.withInstructionFooter(
-        agentResult.stdout.trim(),
-        input.instruction,
-      );
-      const prTitle = this.buildPullRequestTitle(input.task);
-      const pullRequest = await this.resultWriter.writeMutateResult({
-        task: input.task,
-        instruction: input.instruction,
-        baseBranch,
-        branchName: workspace.branchName,
-        title: prTitle,
-        body: prBody,
-      });
+        const prBody = this.withInstructionFooter(
+          agentResult.stdout.trim(),
+          input.instruction,
+        );
+        const prTitle = this.buildPullRequestTitle(input.task);
+        const pullRequest = await this.resultWriter.writeMutateResult({
+          task: input.task,
+          instruction: input.instruction,
+          baseBranch,
+          branchName: workspace.branchName,
+          title: prTitle,
+          body: prBody,
+        });
 
-      await this.dependencies.logStore.write(
-        input.task.taskId,
-        `mutate completed with PR ${pullRequest.url}`,
-      );
-      return { status: "succeeded" };
+        await this.dependencies.logStore.write(
+          input.task.taskId,
+          `mutate completed with PR ${pullRequest.url}`,
+        );
+        return { status: "succeeded" };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "mutate publish failed";
+        await this.postSourceComment(
+          input,
+          this.withInstructionFooter(
+            `Ran \`/claude implement\`: failed to publish result.\n\n${truncate(message, 1500)}`,
+            input.instruction,
+          ),
+        );
+        return this.fail(input.task.taskId, message);
+      }
     } finally {
       await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
+    }
+  }
+
+  private async postSourceComment(
+    input: ExecuteTaskInput,
+    body: string,
+  ): Promise<void> {
+    try {
+      if (input.task.source.kind === "issue") {
+        await this.dependencies.githubClient.postIssueComment(
+          input.task.repo,
+          input.task.source.number,
+          body,
+        );
+      } else {
+        await this.dependencies.githubClient.postPullRequestComment(
+          input.task.repo,
+          input.task.source.number,
+          body,
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      await this.dependencies.logStore.write(
+        input.task.taskId,
+        `failed to post fallback comment: ${message}`,
+      );
     }
   }
 
@@ -335,4 +391,12 @@ export class ExecutionService {
 
     return `Follow up for PR #${task.source.number}`;
   }
+}
+
+function truncate(text: string, maxLength: number): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength)}\n…(truncated, original ${trimmed.length} bytes)`;
 }
