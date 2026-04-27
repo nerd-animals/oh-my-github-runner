@@ -74,7 +74,6 @@ the following are missing:
 - `GITHUB_WEBHOOK_SECRET`
 - `AGENTS` (comma-separated list, e.g. `claude`)
 - `<AGENT>_COMMAND` for each entry in `AGENTS`
-- `ALLOWED_REPOS` (at least one entry)
 
 ## State files
 
