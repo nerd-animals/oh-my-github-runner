@@ -12,7 +12,7 @@ the full live wiring against a real repository, follow the steps in
 `docs/deployment.md` to install the runner, then:
 
 1. Create a fresh issue in a repository that is on the GitHub App's
-   installation list and in `ALLOWED_REPOS`.
+   installation list.
 2. Watch `journalctl -u oh-my-github-runner.service -f` and the issue
    thread on github.com.
 3. Within ~5 seconds the daemon should:

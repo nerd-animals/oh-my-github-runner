@@ -73,11 +73,16 @@ export class ExecutionService {
     context: GitHubSourceContext & { kind: "pull_request" },
   ): Promise<ExecuteTaskResult> {
     const headRef = context.headRef;
+    const installationToken =
+      await this.dependencies.githubClient.getInstallationAccessToken(
+        input.task.repo,
+      );
     const workspace =
       await this.dependencies.workspaceManager.preparePrImplementWorkspace(
         input.task.repo,
         input.task,
         headRef,
+        installationToken,
       );
 
     try {
@@ -170,9 +175,14 @@ export class ExecutionService {
     input: ExecuteTaskInput,
     context: GitHubSourceContext,
   ): Promise<ExecuteTaskResult> {
+    const installationToken =
+      await this.dependencies.githubClient.getInstallationAccessToken(
+        input.task.repo,
+      );
     const workspace = await this.dependencies.workspaceManager.prepareObserveWorkspace(
       input.task,
       context.kind === "pull_request" ? context.headRef : undefined,
+      installationToken,
     );
 
     try {
@@ -230,12 +240,17 @@ export class ExecutionService {
         ? context.baseRef
         : await this.dependencies.githubClient.getDefaultBranch(input.task.repo);
     const branchName = this.buildBranchName(input.task);
+    const installationToken =
+      await this.dependencies.githubClient.getInstallationAccessToken(
+        input.task.repo,
+      );
     const workspace =
       await this.dependencies.workspaceManager.prepareMutateWorkspace(
         input.task.repo,
         input.task,
         baseBranch,
         branchName,
+        installationToken,
       );
 
     try {

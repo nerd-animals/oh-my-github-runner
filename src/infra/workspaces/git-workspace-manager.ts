@@ -30,14 +30,15 @@ export class GitWorkspaceManager implements WorkspaceManager {
   async prepareObserveWorkspace(
     task: TaskRecord,
     checkoutRef?: string,
+    installationToken?: string,
   ): Promise<WorkspaceHandle> {
     const repoUrl = this.getRepoUrl(task.repo);
     const mirrorPath = this.getMirrorPath(task.repo);
     const workspacePath = this.getWorkspacePath(task.taskId);
 
-    await this.ensureMirror(repoUrl, mirrorPath);
+    await this.ensureMirror(repoUrl, mirrorPath, installationToken);
     await this.cloneWorkspace(mirrorPath, workspacePath, repoUrl);
-    await this.checkoutObserveRef(workspacePath, checkoutRef);
+    await this.checkoutObserveRef(workspacePath, checkoutRef, installationToken);
 
     return { workspacePath };
   }
@@ -47,14 +48,22 @@ export class GitWorkspaceManager implements WorkspaceManager {
     task: TaskRecord,
     baseBranch: string,
     branchName: string,
+    installationToken?: string,
   ): Promise<MutateWorkspaceHandle> {
     const repoUrl = this.getRepoUrl(repo);
     const mirrorPath = this.getMirrorPath(repo);
     const workspacePath = this.getWorkspacePath(task.taskId);
 
-    await this.ensureMirror(repoUrl, mirrorPath);
+    await this.ensureMirror(repoUrl, mirrorPath, installationToken);
     await this.cloneWorkspace(mirrorPath, workspacePath, repoUrl);
-    await this.runGit(["-C", workspacePath, "fetch", "origin", "--prune"]);
+    await this.runGit([
+      ...this.buildAuthArgs(installationToken),
+      "-C",
+      workspacePath,
+      "fetch",
+      "origin",
+      "--prune",
+    ]);
     await this.runGit([
       "-C",
       workspacePath,
@@ -74,14 +83,22 @@ export class GitWorkspaceManager implements WorkspaceManager {
     repo: RepoRef,
     task: TaskRecord,
     headRef: string,
+    installationToken?: string,
   ): Promise<MutateWorkspaceHandle> {
     const repoUrl = this.getRepoUrl(repo);
     const mirrorPath = this.getMirrorPath(repo);
     const workspacePath = this.getWorkspacePath(task.taskId);
 
-    await this.ensureMirror(repoUrl, mirrorPath);
+    await this.ensureMirror(repoUrl, mirrorPath, installationToken);
     await this.cloneWorkspace(mirrorPath, workspacePath, repoUrl);
-    await this.runGit(["-C", workspacePath, "fetch", "origin", "--prune"]);
+    await this.runGit([
+      ...this.buildAuthArgs(installationToken),
+      "-C",
+      workspacePath,
+      "fetch",
+      "origin",
+      "--prune",
+    ]);
     await this.runGit([
       "-C",
       workspacePath,
@@ -130,23 +147,15 @@ export class GitWorkspaceManager implements WorkspaceManager {
     workspace: MutateWorkspaceHandle,
     options?: PushBranchOptions,
   ): Promise<void> {
-    const args = ["-C", workspace.workspacePath];
-
-    if (
-      options?.installationToken !== undefined &&
-      options.installationToken.length > 0
-    ) {
-      const baseUrl = this.githubWebBaseUrl.replace(/\/+$/, "");
-      const credentials = Buffer.from(
-        `x-access-token:${options.installationToken}`,
-      ).toString("base64");
-      args.push(
-        "-c",
-        `http.${baseUrl}/.extraheader=AUTHORIZATION: Basic ${credentials}`,
-      );
-    }
-
-    args.push("push", "-u", "origin", workspace.branchName);
+    const args = [
+      "-C",
+      workspace.workspacePath,
+      ...this.buildAuthArgs(options?.installationToken),
+      "push",
+      "-u",
+      "origin",
+      workspace.branchName,
+    ];
     await this.runGit(args);
   }
 
@@ -154,15 +163,27 @@ export class GitWorkspaceManager implements WorkspaceManager {
     await rm(workspace.workspacePath, { recursive: true, force: true });
   }
 
-  private async ensureMirror(repoUrl: string, mirrorPath: string): Promise<void> {
+  private async ensureMirror(
+    repoUrl: string,
+    mirrorPath: string,
+    installationToken?: string,
+  ): Promise<void> {
     await mkdir(path.dirname(mirrorPath), { recursive: true });
+    const authArgs = this.buildAuthArgs(installationToken);
 
     if (await this.pathExists(mirrorPath)) {
-      await this.runGit(["-C", mirrorPath, "fetch", "origin", "--prune"]);
+      await this.runGit([
+        ...authArgs,
+        "-C",
+        mirrorPath,
+        "fetch",
+        "origin",
+        "--prune",
+      ]);
       return;
     }
 
-    await this.runGit(["clone", "--mirror", repoUrl, mirrorPath]);
+    await this.runGit([...authArgs, "clone", "--mirror", repoUrl, mirrorPath]);
   }
 
   private async cloneWorkspace(
@@ -179,12 +200,20 @@ export class GitWorkspaceManager implements WorkspaceManager {
   private async checkoutObserveRef(
     workspacePath: string,
     checkoutRef: string | undefined,
+    installationToken?: string,
   ): Promise<void> {
     if (checkoutRef === undefined || checkoutRef.length === 0) {
       return;
     }
 
-    await this.runGit(["-C", workspacePath, "fetch", "origin", "--prune"]);
+    await this.runGit([
+      ...this.buildAuthArgs(installationToken),
+      "-C",
+      workspacePath,
+      "fetch",
+      "origin",
+      "--prune",
+    ]);
     await this.runGit([
       "-C",
       workspacePath,
@@ -192,6 +221,22 @@ export class GitWorkspaceManager implements WorkspaceManager {
       "--detach",
       `origin/${checkoutRef}`,
     ]);
+  }
+
+  private buildAuthArgs(installationToken: string | undefined): string[] {
+    if (installationToken === undefined || installationToken.length === 0) {
+      return [];
+    }
+
+    const baseUrl = this.githubWebBaseUrl.replace(/\/+$/, "");
+    const credentials = Buffer.from(
+      `x-access-token:${installationToken}`,
+    ).toString("base64");
+
+    return [
+      "-c",
+      `http.${baseUrl}/.extraheader=AUTHORIZATION: Basic ${credentials}`,
+    ];
   }
 
   private async runGit(args: string[]) {

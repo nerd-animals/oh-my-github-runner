@@ -8,16 +8,20 @@ import type { WebhookHandler } from "../../services/webhook-handler.js";
 
 export interface WebhookServerOptions {
   handler: WebhookHandler;
-  path?: string;
+  paths?: readonly string[];
 }
 
-const DEFAULT_PATH = "/webhook";
+const DEFAULT_PATHS: readonly string[] = ["/webhook", "/github/webhooks"];
 
 export function createWebhookServer(options: WebhookServerOptions): Server {
-  const path = options.path ?? DEFAULT_PATH;
+  const allowedPaths = new Set(options.paths ?? DEFAULT_PATHS);
 
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.method !== "POST" || req.url !== path) {
+    if (
+      req.method !== "POST" ||
+      req.url === undefined ||
+      !allowedPaths.has(req.url)
+    ) {
       res.statusCode = 404;
       res.end();
       return;
