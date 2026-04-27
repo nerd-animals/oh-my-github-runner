@@ -1,7 +1,8 @@
 id: issue-implement
-revision: 1
+revision: 2
 source_kind: issue
 mode: mutate
+workflow: mutate
 context:
   include_issue_body: true
   include_issue_comments: true

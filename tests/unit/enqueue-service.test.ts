@@ -8,6 +8,7 @@ const issueImplementInstruction: InstructionDefinition = {
   revision: 1,
   sourceKind: "issue",
   mode: "mutate",
+  workflow: "mutate",
   context: {
     includeIssueBody: true,
     includeIssueComments: true,

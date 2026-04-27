@@ -85,4 +85,23 @@ describe("loadInstructionDefinition", () => {
       false,
     );
   });
+
+  test("workflow field maps observe/mutate/pr_implement from yaml", async () => {
+    const observe = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-initial-review",
+    });
+    const mutate = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-implement",
+    });
+    const prImplement = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "pr-implement",
+    });
+
+    assert.equal(observe.workflow, "observe");
+    assert.equal(mutate.workflow, "mutate");
+    assert.equal(prImplement.workflow, "pr_implement");
+  });
 });

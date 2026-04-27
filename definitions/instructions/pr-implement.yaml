@@ -1,7 +1,8 @@
 id: pr-implement
-revision: 1
+revision: 2
 source_kind: pull_request
 mode: mutate
+workflow: pr_implement
 context:
   include_pr_body: true
   include_pr_comments: true

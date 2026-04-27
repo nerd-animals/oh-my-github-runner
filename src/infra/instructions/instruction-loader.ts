@@ -13,6 +13,7 @@ interface RawInstructionDefinition {
   revision: number;
   source_kind: InstructionDefinition["sourceKind"];
   mode: InstructionDefinition["mode"];
+  workflow: InstructionDefinition["workflow"];
   context?: Record<string, boolean>;
   permissions: {
     code_read: boolean;
@@ -82,6 +83,7 @@ export async function loadInstructionDefinition({
     revision: raw.revision,
     sourceKind: raw.source_kind,
     mode: raw.mode,
+    workflow: raw.workflow,
     context: mapContext(raw.context),
     permissions: mapPermissions(raw.permissions),
     githubActions: raw.github_actions,

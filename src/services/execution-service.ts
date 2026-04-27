@@ -56,22 +56,20 @@ export class ExecutionService {
       input.instruction.context,
     );
 
-    if (input.instruction.id === "pr-implement") {
-      if (context.kind !== "pull_request") {
-        return this.fail(
-          input.task.taskId,
-          "pr-implement requires a pull_request source",
-        );
-      }
-
-      return this.executePrImplement(input, context);
+    switch (input.instruction.workflow) {
+      case "observe":
+        return this.executeObserve(input, context);
+      case "mutate":
+        return this.executeMutate(input, context);
+      case "pr_implement":
+        if (context.kind !== "pull_request") {
+          return this.fail(
+            input.task.taskId,
+            "pr_implement workflow requires a pull_request source",
+          );
+        }
+        return this.executePrImplement(input, context);
     }
-
-    if (input.instruction.mode === "observe") {
-      return this.executeObserve(input, context);
-    }
-
-    return this.executeMutate(input, context);
   }
 
   private async executePrImplement(
