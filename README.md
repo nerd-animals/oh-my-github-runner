@@ -11,7 +11,6 @@ Single-VM queue consumer and executor for GitHub-native AI coding tasks.
 - `src/services`: orchestration logic
 - `src/infra`: storage and external integrations
 - `tests`: unit and integration tests
-- `docs/superpowers`: design and planning documents
 
 ## Initial Commands
 
@@ -50,7 +49,7 @@ This repository contains a working v1 local runner skeleton:
 
 ## Runtime Configuration
 
-Use [.env.example](/D:/workspace/oh-my-github-runner/.env.example) as the template for production configuration.
+Use [.env.example](.env.example) as the template for production configuration.
 
 Required variables:
 
@@ -60,5 +59,4 @@ Required variables:
 
 Useful files:
 
-- systemd unit: [oh-my-github-runner.service](/D:/workspace/oh-my-github-runner/ops/systemd/oh-my-github-runner.service)
-- design spec: [2026-04-24-oracle-vm-github-runner-design.md](/D:/workspace/oh-my-github-runner/docs/superpowers/specs/2026-04-24-oracle-vm-github-runner-design.md)
+- systemd unit: [oh-my-github-runner.service](ops/systemd/oh-my-github-runner.service)
