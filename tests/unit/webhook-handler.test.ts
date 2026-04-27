@@ -44,6 +44,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
       getDefaultAgent: () => "claude",
     },
     botUserId,
+    allowedSenderIds: new Set([1, 100, 200]),
   });
 
   const handler = new WebhookHandler({

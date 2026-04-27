@@ -36,6 +36,7 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
           getDefaultAgent: () => "claude",
         },
         botUserId: 9999,
+        allowedSenderIds: new Set([42, 100, 200]),
       });
 
       const handler = new WebhookHandler({

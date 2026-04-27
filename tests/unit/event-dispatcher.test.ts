@@ -8,13 +8,17 @@ import type {
 
 const repo = { owner: "octo", name: "repo" } as const;
 
-function makeDispatcher(options?: { botUserId?: number }): EventDispatcher {
+function makeDispatcher(options?: {
+  botUserId?: number;
+  allowedSenderIds?: ReadonlySet<number>;
+}): EventDispatcher {
   return new EventDispatcher({
     agentRegistry: {
       has: (name: string) => name === "claude",
       getDefaultAgent: () => "claude",
     },
     botUserId: options?.botUserId ?? 9999,
+    allowedSenderIds: options?.allowedSenderIds ?? new Set([100, 101, 102]),
   });
 }
 
@@ -249,6 +253,74 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "ignore");
     if (action.kind !== "ignore") return;
     assert.match(action.reason, /not registered/);
+  });
+
+  test("ignores issue.opened from a sender outside the allowlist", () => {
+    const dispatcher = makeDispatcher();
+
+    const action = dispatcher.dispatch({
+      kind: "issue_opened",
+      repo,
+      issue: { number: 1, labels: [] },
+      sender: { id: 999, login: "stranger" },
+    });
+
+    assert.equal(action.kind, "ignore");
+    if (action.kind !== "ignore") return;
+    assert.match(action.reason, /not in allowlist/);
+    assert.match(action.reason, /999/);
+    assert.match(action.reason, /stranger/);
+  });
+
+  test("ignores issue_comment from a sender outside the allowlist even with a valid command", () => {
+    const dispatcher = makeDispatcher();
+
+    const action = dispatcher.dispatch({
+      kind: "issue_comment",
+      repo,
+      issue: { number: 1 },
+      comment: { body: "/claude implement" },
+      sender: { id: 999, login: "stranger" },
+    });
+
+    assert.equal(action.kind, "ignore");
+    if (action.kind !== "ignore") return;
+    assert.match(action.reason, /not in allowlist/);
+  });
+
+  test("ignores pr_comment from a sender outside the allowlist", () => {
+    const dispatcher = makeDispatcher();
+
+    const action = dispatcher.dispatch({
+      kind: "pr_comment",
+      repo,
+      pr: pr({ number: 5 }),
+      comment: { body: "/claude implement" },
+      sender: { id: 999, login: "stranger" },
+    });
+
+    assert.equal(action.kind, "ignore");
+    if (action.kind !== "ignore") return;
+    assert.match(action.reason, /not in allowlist/);
+  });
+
+  test("bot self-loop check fires before the allowlist check", () => {
+    const dispatcher = makeDispatcher({
+      botUserId: 1,
+      allowedSenderIds: new Set([100]),
+    });
+
+    const action = dispatcher.dispatch({
+      kind: "issue_comment",
+      repo,
+      issue: { number: 1 },
+      comment: { body: "/claude" },
+      sender: { id: 1, login: "our-bot" },
+    });
+
+    assert.equal(action.kind, "ignore");
+    if (action.kind !== "ignore") return;
+    assert.match(action.reason, /our app's bot/);
   });
 
   // Stable export reference (ensures the type alias survives)

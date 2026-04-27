@@ -59,6 +59,7 @@ export type DispatchAction =
 export interface EventDispatcherDependencies {
   agentRegistry: Pick<AgentRegistry, "has" | "getDefaultAgent">;
   botUserId: number;
+  allowedSenderIds: ReadonlySet<number>;
   noAiLabel?: string;
   routingRules?: readonly RoutingRule[];
 }
@@ -77,6 +78,13 @@ export class EventDispatcher {
   dispatch(event: DispatchedEvent): DispatchAction {
     if (event.sender.id === this.deps.botUserId) {
       return { kind: "ignore", reason: "sender is our app's bot" };
+    }
+
+    if (!this.deps.allowedSenderIds.has(event.sender.id)) {
+      return {
+        kind: "ignore",
+        reason: `sender id ${event.sender.id} (login=${event.sender.login}) not in allowlist`,
+      };
     }
 
     if (event.kind === "issue_opened") {

@@ -83,6 +83,9 @@ the following are missing:
 - `GITHUB_WEBHOOK_SECRET`
 - `AGENTS` (comma-separated list, e.g. `claude`)
 - `<AGENT>_COMMAND` for each entry in `AGENTS`
+- `ALLOWED_SENDER_IDS` (comma-separated GitHub user IDs allowed to trigger
+  tasks via webhook; events from any other sender are dropped before
+  enqueue. Look up an id with `gh api /users/<login> --jq .id`.)
 
 ## State files
 

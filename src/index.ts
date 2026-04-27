@@ -44,6 +44,30 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseSenderIdAllowlist(name: string): Set<number> {
+  const raw = requireEnv(name);
+  const ids = new Set<number>();
+
+  for (const part of raw.split(",")) {
+    const trimmed = part.trim();
+    if (trimmed.length === 0) continue;
+
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      throw new Error(
+        `${name} contains a non-integer or non-positive entry: '${trimmed}'`,
+      );
+    }
+    ids.add(parsed);
+  }
+
+  if (ids.size === 0) {
+    throw new Error(`${name} must list at least one sender id`);
+  }
+
+  return ids;
+}
+
 export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const runnerRoot = process.env.RUNNER_ROOT ?? process.cwd();
   const pollIntervalMs = parsePositiveInt(
@@ -187,9 +211,12 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     throw new Error(`Invalid bot user id: ${botUserId}`);
   }
 
+  const allowedSenderIds = parseSenderIdAllowlist("ALLOWED_SENDER_IDS");
+
   const dispatcher = new EventDispatcher({
     agentRegistry,
     botUserId,
+    allowedSenderIds,
   });
 
   const webhookHandler = new WebhookHandler({
