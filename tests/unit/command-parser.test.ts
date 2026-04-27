@@ -86,4 +86,36 @@ describe("parseCommand", () => {
       additionalInstructions: "",
     });
   });
+
+  test("matches the verb case-insensitively (capitalized)", () => {
+    assert.deepEqual(parseCommand("/claude Implement"), {
+      agent: "claude",
+      verb: "implement",
+      additionalInstructions: "",
+    });
+  });
+
+  test("matches the verb case-insensitively with trailing instructions", () => {
+    assert.deepEqual(parseCommand("/claude IMPLEMENT add tests"), {
+      agent: "claude",
+      verb: "implement",
+      additionalInstructions: "add tests",
+    });
+  });
+
+  test("matches the verb case-insensitively (mixed case)", () => {
+    assert.deepEqual(parseCommand("/claude ImPlEmEnT"), {
+      agent: "claude",
+      verb: "implement",
+      additionalInstructions: "",
+    });
+  });
+
+  test("does not match a verb that only starts with a known verb", () => {
+    assert.deepEqual(parseCommand("/claude implementation foo"), {
+      agent: "claude",
+      verb: null,
+      additionalInstructions: "implementation foo",
+    });
+  });
 });

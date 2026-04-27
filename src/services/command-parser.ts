@@ -66,7 +66,7 @@ export function parseCommand(body: unknown): ParsedCommand | null {
 
   if (remainder.length > 0) {
     const tokenMatch = FIRST_TOKEN_PATTERN.exec(remainder);
-    const firstToken = tokenMatch?.[1] ?? "";
+    const firstToken = (tokenMatch?.[1] ?? "").toLowerCase();
 
     if (KNOWN_VERBS.has(firstToken)) {
       verb = firstToken as CommandVerb;

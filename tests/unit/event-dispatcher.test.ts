@@ -141,6 +141,22 @@ describe("EventDispatcher", () => {
     assert.equal(action.instructionId, "pr-implement");
   });
 
+  test("maps /claude Implement (capitalized) on a PR to pr-implement", () => {
+    const dispatcher = makeDispatcher();
+
+    const action = dispatcher.dispatch({
+      kind: "pr_comment",
+      repo,
+      pr: pr({ number: 52 }),
+      comment: { body: "/claude Implement" },
+      sender: { id: 100, login: "alice" },
+    });
+
+    assert.equal(action.kind, "enqueue");
+    if (action.kind !== "enqueue") return;
+    assert.equal(action.instructionId, "pr-implement");
+  });
+
   test("rejects /claude implement on a fork PR with a comment", () => {
     const dispatcher = makeDispatcher();
 
