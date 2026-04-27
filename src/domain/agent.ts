@@ -9,8 +9,7 @@ export interface AgentRunInput {
   installationToken?: string;
 }
 
-export interface AgentRunResult {
-  exitCode: number;
-  stdout: string;
-  stderr: string;
-}
+export type AgentRunResult =
+  | { kind: "succeeded"; stdout: string }
+  | { kind: "failed"; exitCode: number; stdout: string; stderr: string }
+  | { kind: "rate_limited"; agentName: string; signal: string };

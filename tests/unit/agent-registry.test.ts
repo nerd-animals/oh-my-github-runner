@@ -8,7 +8,7 @@ import {
 } from "../../src/services/agent-registry.js";
 
 const stubRunner: AgentRunner = {
-  run: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+  run: async () => ({ kind: "succeeded", stdout: "" }),
 };
 
 describe("normalizeAgentName", () => {

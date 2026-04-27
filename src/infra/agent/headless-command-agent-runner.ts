@@ -44,7 +44,12 @@ export class HeadlessCommandAgentRunner implements AgentRunner {
       },
     });
 
+    if (result.exitCode === 0) {
+      return { kind: "succeeded", stdout: result.stdout };
+    }
+
     return {
+      kind: "failed",
       exitCode: result.exitCode,
       stdout: result.stdout,
       stderr: result.stderr,

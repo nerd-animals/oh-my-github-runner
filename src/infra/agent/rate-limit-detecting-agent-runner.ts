@@ -2,13 +2,6 @@ import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
 import type { AgentRateLimitConfig } from "./agent-rate-limit-config.js";
 import type { AgentRunner } from "../../domain/ports/agent-runner.js";
 
-export class RateLimitedError extends Error {
-  constructor(public readonly agentName: string) {
-    super(`Agent '${agentName}' is rate-limited`);
-    this.name = "RateLimitedError";
-  }
-}
-
 export interface RateLimitDetectingAgentRunnerOptions {
   inner: AgentRunner;
   agentName: string;
@@ -21,21 +14,37 @@ export class RateLimitDetectingAgentRunner implements AgentRunner {
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const result = await this.options.inner.run(input);
 
-    if (this.matchesRateLimit(result)) {
-      throw new RateLimitedError(this.options.agentName);
+    if (result.kind !== "failed") {
+      return result;
+    }
+
+    const signal = this.matchingSignal(result);
+
+    if (signal !== null) {
+      return {
+        kind: "rate_limited",
+        agentName: this.options.agentName,
+        signal,
+      };
     }
 
     return result;
   }
 
-  private matchesRateLimit(result: AgentRunResult): boolean {
+  private matchingSignal(
+    result: AgentRunResult & { kind: "failed" },
+  ): string | null {
     if (this.options.config.exitCodes.includes(result.exitCode)) {
-      return true;
+      return `exit_code=${result.exitCode}`;
     }
 
     const haystack = `${result.stdout}\n${result.stderr}`;
-    return this.options.config.stderrPatterns.some((pattern) =>
-      pattern.test(haystack),
-    );
+    for (const pattern of this.options.config.stderrPatterns) {
+      if (pattern.test(haystack)) {
+        return `pattern=${pattern.source}`;
+      }
+    }
+
+    return null;
   }
 }

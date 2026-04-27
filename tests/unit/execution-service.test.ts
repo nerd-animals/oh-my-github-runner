@@ -204,9 +204,8 @@ describe("ExecutionService", () => {
           run: async (input: AgentRunInput): Promise<AgentRunResult> => {
             prompts.push(input);
             return {
-              exitCode: 0,
+              kind: "succeeded",
               stdout: "Observed summary",
-              stderr: "",
             };
           },
         }),
@@ -287,9 +286,8 @@ describe("ExecutionService", () => {
           run: async (input: AgentRunInput): Promise<AgentRunResult> => {
             runInputs.push(input);
             return {
-              exitCode: 0,
+              kind: "succeeded",
               stdout: "Observed",
-              stderr: "",
             };
           },
         }),
@@ -372,9 +370,8 @@ describe("ExecutionService", () => {
           run: async (input: AgentRunInput): Promise<AgentRunResult> => {
             prompts.push(input);
             return {
-              exitCode: 0,
+              kind: "succeeded",
               stdout: "Observed summary",
-              stderr: "",
             };
           },
         }),
@@ -452,10 +449,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Observed",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Observed",
+            }),
         }),
       },
       logStore: {
@@ -553,10 +549,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "stale review",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "stale review",
+            }),
         }),
       },
       logStore: {
@@ -635,10 +630,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Review summary",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Review summary",
+            }),
         }),
       },
       logStore: {
@@ -728,10 +722,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Implemented fix",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Implemented fix",
+            }),
         }),
       },
       logStore: {
@@ -812,10 +805,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "No changes needed",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "No changes needed",
+            }),
         }),
       },
       logStore: {
@@ -892,6 +884,7 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
+            kind: "failed",
             exitCode: 2,
             stdout: "",
             stderr: "boom: something blew up",
@@ -971,10 +964,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Implemented",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Implemented",
+            }),
         }),
       },
       logStore: {
@@ -1060,10 +1052,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Applied the fix.",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Applied the fix.",
+            }),
         }),
       },
       logStore: {
@@ -1147,10 +1138,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "Applied the fix.",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "Applied the fix.",
+            }),
         }),
       },
       logStore: {
@@ -1232,10 +1222,9 @@ describe("ExecutionService", () => {
       agentRegistry: {
         resolve: () => ({
           run: async () => ({
-            exitCode: 0,
-            stdout: "No changes were necessary.",
-            stderr: "",
-          }),
+              kind: "succeeded",
+              stdout: "No changes were necessary.",
+            }),
         }),
       },
       logStore: {
