@@ -62,7 +62,7 @@ const mutateInstruction: InstructionDefinition = {
 };
 
 describe("ExecutionPromptBuilder", () => {
-  test("observe prompts contain a Policy block forbidding workspace writes", () => {
+  test("observe prompts forbid workspace writes and tell the agent to post comments itself", () => {
     const prompt = new ExecutionPromptBuilder().build({
       task: baseTask,
       instruction: observeInstruction,
@@ -71,12 +71,12 @@ describe("ExecutionPromptBuilder", () => {
 
     assert.match(prompt, /Policy:/);
     assert.match(prompt, /- Mode: observe/);
-    assert.match(prompt, /MUST NOT modify files/);
-    assert.match(prompt, /git push/);
-    assert.match(prompt, /gh/);
+    assert.match(prompt, /MUST NOT modify files in the workspace/);
+    assert.match(prompt, /gh issue comment/);
+    assert.match(prompt, /runner does not write back/);
   });
 
-  test("mutate prompts contain a Policy block allowing edits but no push", () => {
+  test("mutate prompts allow push and tell the agent to commit, push, and open the PR itself", () => {
     const prompt = new ExecutionPromptBuilder().build({
       task: baseTask,
       instruction: mutateInstruction,
@@ -85,7 +85,8 @@ describe("ExecutionPromptBuilder", () => {
 
     assert.match(prompt, /Policy:/);
     assert.match(prompt, /- Mode: mutate/);
-    assert.match(prompt, /read and write files/);
-    assert.match(prompt, /runner pushes for you/);
+    assert.match(prompt, /git push/);
+    assert.match(prompt, /gh pr create/);
+    assert.match(prompt, /server-protected/);
   });
 });

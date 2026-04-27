@@ -162,7 +162,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       githubClient,
       workspaceManager,
       agentRegistry,
-      queueStore,
       logStore,
     }),
     logStore,

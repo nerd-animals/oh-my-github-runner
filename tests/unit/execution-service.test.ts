@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { AgentRunInput, AgentRunResult } from "../../src/domain/agent.js";
-import type { CreatePullRequestInput, GitHubSourceContext } from "../../src/domain/github.js";
+import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
+import type { GitHubClient } from "../../src/domain/ports/github-client.js";
+import type { WorkspaceManager } from "../../src/domain/ports/workspace-manager.js";
 import { ExecutionService } from "../../src/services/execution-service.js";
 
 const observeInstruction: InstructionDefinition = {
@@ -25,9 +27,7 @@ const observeInstruction: InstructionDefinition = {
     commentWrite: true,
   },
   githubActions: ["issue_comment"],
-  execution: {
-    timeoutSec: 1800,
-  },
+  execution: { timeoutSec: 1800 },
 };
 
 const mutateInstruction: InstructionDefinition = {
@@ -36,11 +36,7 @@ const mutateInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "mutate",
   workflow: "mutate",
-  context: {
-    includeIssueBody: true,
-    includeIssueComments: true,
-    includeLinkedPrs: true,
-  },
+  context: { includeIssueBody: true, includeIssueComments: true },
   permissions: {
     codeRead: true,
     codeWrite: true,
@@ -50,9 +46,7 @@ const mutateInstruction: InstructionDefinition = {
     commentWrite: true,
   },
   githubActions: ["branch_push", "pr_create", "issue_comment"],
-  execution: {
-    timeoutSec: 3600,
-  },
+  execution: { timeoutSec: 3600 },
 };
 
 const prImplementInstruction: InstructionDefinition = {
@@ -75,34 +69,7 @@ const prImplementInstruction: InstructionDefinition = {
     commentWrite: true,
   },
   githubActions: ["branch_push", "pull_request_comment"],
-  execution: {
-    timeoutSec: 3600,
-  },
-};
-
-const pullRequestObserveInstruction: InstructionDefinition = {
-  id: "pr-review-comment",
-  revision: 1,
-  sourceKind: "pull_request",
-  mode: "observe",
-  workflow: "observe",
-  context: {
-    includePrBody: true,
-    includePrComments: true,
-    includePrDiff: true,
-  },
-  permissions: {
-    codeRead: true,
-    codeWrite: false,
-    gitPush: false,
-    prCreate: false,
-    prUpdate: false,
-    commentWrite: true,
-  },
-  githubActions: ["pull_request_comment"],
-  execution: {
-    timeoutSec: 1800,
-  },
+  execution: { timeoutSec: 3600 },
 };
 
 const issueContext: GitHubSourceContext = {
@@ -141,1112 +108,303 @@ function createTask(
   };
 }
 
-describe("ExecutionService", () => {
-  test("passes instruction context to github loading and omits disabled prompt sections", async () => {
-    const prompts: AgentRunInput[] = [];
-    const contextArgs: unknown[][] = [];
+interface BuildOptions {
+  agentRun?: (input: AgentRunInput) => Promise<AgentRunResult>;
+  hasChanges?: boolean;
+  contextOverride?: GitHubSourceContext;
+  installationToken?: string;
+  defaultBranch?: string;
+  workspaceCleanup?: () => void;
+}
 
-    const instruction: InstructionDefinition = {
-      ...observeInstruction,
-      context: {},
-    };
+interface Fixture {
+  service: ExecutionService;
+  agentInputs: AgentRunInput[];
+  contextArgs: unknown[][];
+  cleanupCalled: { count: number };
+  observeWorkspaceArgs: unknown[][];
+  mutateWorkspaceArgs: unknown[][];
+  prImplementWorkspaceArgs: unknown[][];
+  // Tracks any GitHubClient call that the runner should not make in
+  // agent-driven mode (the runner now leaves all GitHub state changes
+  // and PR creation to the agent).
+  forbiddenCalls: { method: string; args: unknown[] }[];
+}
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async (...args) => {
-          contextArgs.push(args);
-          return issueContext;
+function buildFixture(options: BuildOptions = {}): Fixture {
+  const agentInputs: AgentRunInput[] = [];
+  const contextArgs: unknown[][] = [];
+  const cleanupCalled = { count: 0 };
+  const observeWorkspaceArgs: unknown[][] = [];
+  const mutateWorkspaceArgs: unknown[][] = [];
+  const prImplementWorkspaceArgs: unknown[][] = [];
+  const forbiddenCalls: { method: string; args: unknown[] }[] = [];
+  const installationToken = options.installationToken ?? "ghs_TEST_TOKEN";
+
+  const githubClient: GitHubClient = {
+    getSourceContext: async (...args) => {
+      contextArgs.push(args);
+      return options.contextOverride ?? issueContext;
+    },
+    getDefaultBranch: async () => options.defaultBranch ?? "main",
+    getPullRequestState: async () => ({
+      number: 0,
+      isFork: false,
+      state: "open" as const,
+      merged: false,
+      headRef: "feature/x",
+    }),
+    getIssueLabels: async () => ({ labels: [] }),
+    getAppBotInfo: async () => ({ id: 1, login: "bot[bot]", slug: "bot" }),
+    getInstallationAccessToken: async () => installationToken,
+    postIssueComment: async (...args) => {
+      forbiddenCalls.push({ method: "postIssueComment", args });
+    },
+    postPullRequestComment: async (...args) => {
+      forbiddenCalls.push({ method: "postPullRequestComment", args });
+    },
+    findOpenPullRequestByBranch: async () => null,
+    createPullRequest: async (input) => {
+      forbiddenCalls.push({ method: "createPullRequest", args: [input] });
+      return {
+        number: 1,
+        url: "https://example.test/pr/1",
+        branchName: input.branchName,
+      };
+    },
+    updatePullRequest: async (number, input) => {
+      forbiddenCalls.push({ method: "updatePullRequest", args: [number, input] });
+      return {
+        number,
+        url: `https://example.test/pr/${number}`,
+        branchName: input.branchName,
+      };
+    },
+  };
+
+  const workspaceManager: WorkspaceManager = {
+    prepareObserveWorkspace: async (...args) => {
+      observeWorkspaceArgs.push(args);
+      return { workspacePath: "/tmp/observe" };
+    },
+    prepareMutateWorkspace: async (...args) => {
+      mutateWorkspaceArgs.push(args);
+      return {
+        workspacePath: "/tmp/mutate",
+        branchName: "ai/issue-100",
+      };
+    },
+    preparePrImplementWorkspace: async (...args) => {
+      prImplementWorkspaceArgs.push(args);
+      return {
+        workspacePath: "/tmp/pr-implement",
+        branchName: "feature/pr-52",
+      };
+    },
+    hasChanges: async () => options.hasChanges ?? false,
+    commitAll: async () => {
+      forbiddenCalls.push({ method: "commitAll", args: [] });
+    },
+    pushBranch: async (...args) => {
+      forbiddenCalls.push({ method: "pushBranch", args });
+    },
+    cleanupWorkspace: async () => {
+      cleanupCalled.count += 1;
+      options.workspaceCleanup?.();
+    },
+  };
+
+  const service = new ExecutionService({
+    githubClient,
+    workspaceManager,
+    agentRegistry: {
+      resolve: () => ({
+        run: async (input) => {
+          agentInputs.push(input);
+          return options.agentRun
+            ? options.agentRun(input)
+            : { kind: "succeeded", stdout: "ok" };
         },
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({
-          workspacePath: "/tmp/observe",
-        }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async (input: AgentRunInput): Promise<AgentRunResult> => {
-            prompts.push(input);
-            return {
-              kind: "succeeded",
-              stdout: "Observed summary",
-            };
-          },
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("issue-comment-reply"),
-      instruction,
-    });
-
-    assert.equal(result.status, "succeeded");
-    assert.deepEqual(contextArgs[0]?.[2], instruction.context);
-    assert.equal(prompts.length, 1);
-    assert.doesNotMatch(prompts[0]?.prompt ?? "", /Body:/);
-    assert.doesNotMatch(prompts[0]?.prompt ?? "", /Comments:/);
+      }),
+    },
+    logStore: {
+      write: async () => {},
+      cleanupExpired: async () => {},
+    },
   });
 
-  test("forwards the installation token to the agent runner", async () => {
-    const runInputs: AgentRunInput[] = [];
+  return {
+    service,
+    agentInputs,
+    contextArgs,
+    cleanupCalled,
+    observeWorkspaceArgs,
+    mutateWorkspaceArgs,
+    prImplementWorkspaceArgs,
+    forbiddenCalls,
+  };
+}
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "ghs_TEST_TOKEN",
-        postIssueComment: async () => {},
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async (input: AgentRunInput): Promise<AgentRunResult> => {
-            runInputs.push(input);
-            return {
-              kind: "succeeded",
-              stdout: "Observed",
-            };
-          },
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
+describe("ExecutionService (agent-driven)", () => {
+  test("observe: spawns agent, cleans up, makes no GitHub state mutation of its own", async () => {
+    const fixture = buildFixture();
 
-    const result = await service.execute({
+    const result = await fixture.service.execute({
       task: createTask("issue-comment-reply"),
       instruction: observeInstruction,
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.equal(runInputs[0]?.installationToken, "ghs_TEST_TOKEN");
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(fixture.agentInputs.length, 1);
+    assert.equal(fixture.cleanupCalled.count, 1);
+    assert.deepEqual(fixture.forbiddenCalls, []);
   });
 
-  test("runs observe work and posts an issue comment", async () => {
-    const postedComments: string[] = [];
-    const prompts: AgentRunInput[] = [];
+  test("observe: passes the requested instruction context into getSourceContext and the prompt", async () => {
+    const fixture = buildFixture();
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _issueNumber, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({
-          workspacePath: "/tmp/observe",
-        }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async (input: AgentRunInput): Promise<AgentRunResult> => {
-            prompts.push(input);
-            return {
-              kind: "succeeded",
-              stdout: "Observed summary",
-            };
-          },
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
+    await fixture.service.execute({
+      task: createTask("issue-comment-reply"),
+      instruction: { ...observeInstruction, context: { includeIssueBody: true } },
     });
 
-    const result = await service.execute({
+    assert.deepEqual(fixture.contextArgs[0]?.[2], { includeIssueBody: true });
+    assert.match(fixture.agentInputs[0]?.prompt ?? "", /Body:/);
+    assert.doesNotMatch(fixture.agentInputs[0]?.prompt ?? "", /Comments:/);
+  });
+
+  test("observe: forwards the installation token to the agent runner", async () => {
+    const fixture = buildFixture({ installationToken: "ghs_OBSERVE_TOKEN" });
+
+    await fixture.service.execute({
       task: createTask("issue-comment-reply"),
       instruction: observeInstruction,
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.equal(prompts.length, 1);
-    assert.match(postedComments[0] ?? "", /Observed summary/);
-    assert.match(postedComments[0] ?? "", /issue-comment-reply r1/);
+    assert.equal(fixture.agentInputs[0]?.installationToken, "ghs_OBSERVE_TOKEN");
   });
 
-  test("observe logs a WARN if the workspace is dirty after the agent finishes", async () => {
-    const logs: Array<{ taskId: string; message: string }> = [];
+  test("observe: checks out the PR head ref when source is a pull request", async () => {
+    const fixture = buildFixture({ contextOverride: pullRequestContext });
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => true,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Observed",
-            }),
-        }),
-      },
-      logStore: {
-        write: async (taskId, message) => {
-          logs.push({ taskId, message });
-        },
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("issue-comment-reply"),
-      instruction: observeInstruction,
-    });
-
-    assert.equal(result.status, "succeeded");
-    assert.ok(
-      logs.some((entry) =>
-        entry.message.includes(
-          "observe agent left workspace modifications",
-        ),
-      ),
-      `expected WARN log, got: ${logs.map((l) => l.message).join(" | ")}`,
-    );
-  });
-
-  test("skips observe write-back when a newer task supersedes it", async () => {
-    const postedComments: string[] = [];
-
-    const currentTask = createTask("issue-comment-reply");
-    const newerTask: TaskRecord = {
-      taskId: "task_newer",
-      repo: currentTask.repo,
-      source: currentTask.source,
-      instructionId: currentTask.instructionId,
-      agent: "claude",
-      status: "queued",
-      priority: "normal",
-      requestedBy: "alice",
-      createdAt: "2030-01-01T00:00:00.000Z",
-    };
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _number, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/issue-100",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "stale review",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [currentTask, newerTask],
-      },
-    });
-
-    const result = await service.execute({
-      task: currentTask,
-      instruction: observeInstruction,
-    });
-
-    assert.equal(result.status, "succeeded");
-    assert.equal(postedComments.length, 0);
-  });
-
-  test("checks out the pull request head ref for observe work", async () => {
-    const observeWorkspaceArgs: unknown[][] = [];
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => pullRequestContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/pr-52",
-        }),
-        updatePullRequest: async () => ({
-          number: 1,
-          url: "https://example.test/pr/1",
-          branchName: "ai/pr-52",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async (...args) => {
-          observeWorkspaceArgs.push(args);
-          return {
-            workspacePath: "/tmp/observe-pr",
-          };
-        },
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/pr-52",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/pr-52",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {},
-        pushBranch: async () => {},
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Review summary",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
+    await fixture.service.execute({
       task: createTask("pr-review-comment", { kind: "pull_request", number: 52 }),
-      instruction: pullRequestObserveInstruction,
+      instruction: { ...observeInstruction, sourceKind: "pull_request" },
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.equal(observeWorkspaceArgs[0]?.[1], pullRequestContext.headRef);
+    assert.equal(fixture.observeWorkspaceArgs[0]?.[1], pullRequestContext.headRef);
   });
 
-  test("runs mutate work, pushes changes, and creates a pull request", async () => {
-    const createdPullRequests: CreatePullRequestInput[] = [];
-    const postedComments: string[] = [];
-    const workspaceCalls: string[] = [];
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _issueNumber, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async (input) => {
-          createdPullRequests.push(input);
-          return {
-            number: 15,
-            url: "https://example.test/pr/15",
-            branchName: input.branchName,
-          };
-        },
-        updatePullRequest: async () => {
-          throw new Error("should not update in this test");
-        },
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({
-          workspacePath: "/tmp/observe",
-        }),
-        prepareMutateWorkspace: async () => {
-          workspaceCalls.push("prepare");
-          return {
-            workspacePath: "/tmp/mutate",
-            branchName: "ai/issue-100",
-          };
-        },
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => true,
-        commitAll: async () => {
-          workspaceCalls.push("commit");
-        },
-        pushBranch: async () => {
-          workspaceCalls.push("push");
-        },
-        cleanupWorkspace: async () => {
-          workspaceCalls.push("cleanup");
-        },
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Implemented fix",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
+  test("observe: forwards rate_limited result and skips workspace cleanup work but still cleans up", async () => {
+    const fixture = buildFixture({
+      agentRun: async () => ({
+        kind: "rate_limited",
+        agentName: "claude",
+        signal: "exit_code=137",
+      }),
     });
 
-    const result = await service.execute({
+    const result = await fixture.service.execute({
+      task: createTask("issue-comment-reply"),
+      instruction: observeInstruction,
+    });
+
+    assert.deepEqual(result, { status: "rate_limited", agentName: "claude" });
+    assert.equal(fixture.cleanupCalled.count, 1);
+    assert.deepEqual(fixture.forbiddenCalls, []);
+  });
+
+  test("observe: forwards failed result with the agent stderr as errorSummary", async () => {
+    const fixture = buildFixture({
+      agentRun: async () => ({
+        kind: "failed",
+        exitCode: 2,
+        stdout: "",
+        stderr: "boom",
+      }),
+    });
+
+    const result = await fixture.service.execute({
+      task: createTask("issue-comment-reply"),
+      instruction: observeInstruction,
+    });
+
+    assert.deepEqual(result, { status: "failed", errorSummary: "boom" });
+    assert.deepEqual(fixture.forbiddenCalls, []);
+  });
+
+  test("mutate: spawns agent on a branch named ai/<kind>-<number>, makes no runner-side push/PR call", async () => {
+    const fixture = buildFixture({ hasChanges: true });
+
+    const result = await fixture.service.execute({
       task: createTask("issue-implement"),
       instruction: mutateInstruction,
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.deepEqual(workspaceCalls, ["prepare", "commit", "push", "cleanup"]);
-    assert.equal(createdPullRequests.length, 1);
-    assert.match(createdPullRequests[0]?.title ?? "", /issue #100/i);
-    assert.match(postedComments[0] ?? "", /https:\/\/example\.test\/pr\/15/);
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(fixture.mutateWorkspaceArgs[0]?.[3], "ai/issue-100");
+    assert.equal(fixture.cleanupCalled.count, 1);
+    assert.deepEqual(fixture.forbiddenCalls, []);
   });
 
-  test("marks mutate work as succeeded without PR and posts a no-op comment when no diff exists", async () => {
-    const postedComments: string[] = [];
+  test("mutate: even when the agent leaves no file changes, the runner does not post a no-op comment (agent owns the comment)", async () => {
+    const fixture = buildFixture({ hasChanges: false });
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _number, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => {
-          throw new Error("should not create a PR");
-        },
-        updatePullRequest: async () => {
-          throw new Error("should not update a PR");
-        },
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({
-          workspacePath: "/tmp/observe",
-        }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {
-          throw new Error("should not commit");
-        },
-        pushBranch: async () => {
-          throw new Error("should not push");
-        },
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "No changes needed",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
+    const result = await fixture.service.execute({
       task: createTask("issue-implement"),
       instruction: mutateInstruction,
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.equal(postedComments.length, 1);
-    assert.match(postedComments[0] ?? "", /no changes were needed/);
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.deepEqual(fixture.forbiddenCalls, []);
   });
 
-  test("mutate posts a fallback comment and fails when the agent exits non-zero", async () => {
-    const postedComments: string[] = [];
+  test("pr_implement: requires a pull_request source", async () => {
+    const fixture = buildFixture();
 
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _number, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => {
-          throw new Error("should not create a PR");
-        },
-        updatePullRequest: async () => {
-          throw new Error("should not update a PR");
-        },
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {
-          throw new Error("must not commit when agent failed");
-        },
-        pushBranch: async () => {
-          throw new Error("must not push when agent failed");
-        },
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-            kind: "failed",
-            exitCode: 2,
-            stdout: "",
-            stderr: "boom: something blew up",
-          }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("issue-implement"),
-      instruction: mutateInstruction,
-    });
-
-    assert.equal(result.status, "failed");
-    assert.equal(postedComments.length, 1);
-    assert.match(postedComments[0] ?? "", /agent exited with code 2/);
-    assert.match(postedComments[0] ?? "", /boom: something blew up/);
-  });
-
-  test("mutate posts a fallback comment and fails when push throws", async () => {
-    const postedComments: string[] = [];
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => issueContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 0,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: "feature/x",
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async (_repo, _number, body) => {
-          postedComments.push(body);
-        },
-        postPullRequestComment: async () => {},
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => {
-          throw new Error("must not create a PR when push failed");
-        },
-        updatePullRequest: async () => {
-          throw new Error("must not update a PR when push failed");
-        },
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: "feature/x",
-        }),
-        hasChanges: async () => true,
-        commitAll: async () => {},
-        pushBranch: async () => {
-          throw new Error("non-fast-forward push rejected");
-        },
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Implemented",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("issue-implement"),
-      instruction: mutateInstruction,
-    });
-
-    assert.equal(result.status, "failed");
-    assert.equal(postedComments.length, 1);
-    assert.match(postedComments[0] ?? "", /failed to publish result/);
-    assert.match(postedComments[0] ?? "", /non-fast-forward/);
-  });
-
-  test("pr-implement pushes commits to PR head and posts a status comment without creating a new PR", async () => {
-    const prComments: string[] = [];
-    const workspaceCalls: string[] = [];
-    let preparedHeadRef: string | undefined;
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => pullRequestContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 52,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: pullRequestContext.headRef,
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async (_repo, _number, body) => {
-          prComments.push(body);
-        },
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => {
-          throw new Error("pr-implement must not create a PR");
-        },
-        updatePullRequest: async () => {
-          throw new Error("pr-implement must not update a PR");
-        },
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async (_repo, _task, headRef) => {
-          preparedHeadRef = headRef;
-          workspaceCalls.push("prepare");
-          return {
-            workspacePath: "/tmp/pr-implement",
-            branchName: headRef,
-          };
-        },
-        hasChanges: async () => true,
-        commitAll: async () => {
-          workspaceCalls.push("commit");
-        },
-        pushBranch: async () => {
-          workspaceCalls.push("push");
-        },
-        cleanupWorkspace: async () => {
-          workspaceCalls.push("cleanup");
-        },
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Applied the fix.",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
-      instruction: prImplementInstruction,
-    });
-
-    assert.equal(result.status, "succeeded");
-    assert.deepEqual(workspaceCalls, ["prepare", "commit", "push", "cleanup"]);
-    assert.equal(preparedHeadRef, pullRequestContext.headRef);
-    assert.equal(prComments.length, 1);
-    assert.match(
-      prComments[0] ?? "",
-      new RegExp(`Pushed commits to \`${pullRequestContext.headRef}\``),
-    );
-  });
-
-  test("pr-implement surfaces a push failure as a PR comment and fails the task", async () => {
-    const prComments: string[] = [];
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => pullRequestContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 52,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: pullRequestContext.headRef,
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async (_repo, _number, body) => {
-          prComments.push(body);
-        },
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 0,
-          url: "",
-          branchName: "",
-        }),
-        updatePullRequest: async () => ({
-          number: 0,
-          url: "",
-          branchName: "",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: pullRequestContext.headRef,
-        }),
-        hasChanges: async () => true,
-        commitAll: async () => {},
-        pushBranch: async () => {
-          throw new Error("non-fast-forward push rejected");
-        },
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "Applied the fix.",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
-    });
-
-    const result = await service.execute({
-      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+    const result = await fixture.service.execute({
+      task: createTask("pr-implement"),
       instruction: prImplementInstruction,
     });
 
     assert.equal(result.status, "failed");
-    assert.equal(prComments.length, 1);
-    assert.match(prComments[0] ?? "", /Failed to push commits/);
-    assert.match(prComments[0] ?? "", /non-fast-forward/);
+    if (result.status !== "failed") return;
+    assert.match(result.errorSummary, /pull_request source/);
+    assert.equal(fixture.cleanupCalled.count, 0);
   });
 
-  test("pr-implement reports no-op when the agent makes no changes", async () => {
-    const prComments: string[] = [];
-
-    const service = new ExecutionService({
-      githubClient: {
-        getSourceContext: async () => pullRequestContext,
-        getDefaultBranch: async () => "main",
-        getPullRequestState: async () => ({
-          number: 52,
-          isFork: false,
-          state: "open" as const,
-          merged: false,
-          headRef: pullRequestContext.headRef,
-        }),
-        getIssueLabels: async () => ({ labels: [] }),
-        getAppBotInfo: async () => ({
-          id: 1,
-          login: "bot[bot]",
-          slug: "bot",
-        }),
-        getInstallationAccessToken: async () => "test-token",
-        postIssueComment: async () => {},
-        postPullRequestComment: async (_repo, _number, body) => {
-          prComments.push(body);
-        },
-        findOpenPullRequestByBranch: async () => null,
-        createPullRequest: async () => ({
-          number: 0,
-          url: "",
-          branchName: "",
-        }),
-        updatePullRequest: async () => ({
-          number: 0,
-          url: "",
-          branchName: "",
-        }),
-      },
-      workspaceManager: {
-        prepareObserveWorkspace: async () => ({ workspacePath: "/tmp/observe" }),
-        prepareMutateWorkspace: async () => ({
-          workspacePath: "/tmp/mutate",
-          branchName: "ai/issue-100",
-        }),
-        preparePrImplementWorkspace: async () => ({
-          workspacePath: "/tmp/pr-implement",
-          branchName: pullRequestContext.headRef,
-        }),
-        hasChanges: async () => false,
-        commitAll: async () => {
-          throw new Error("must not commit when there are no changes");
-        },
-        pushBranch: async () => {
-          throw new Error("must not push when there are no changes");
-        },
-        cleanupWorkspace: async () => {},
-      },
-      agentRegistry: {
-        resolve: () => ({
-          run: async () => ({
-              kind: "succeeded",
-              stdout: "No changes were necessary.",
-            }),
-        }),
-      },
-      logStore: {
-        write: async () => {},
-        cleanupExpired: async () => {},
-      },
-      queueStore: {
-        listTasks: async () => [],
-      },
+  test("pr_implement: prepares the PR head workspace and forwards the installation token", async () => {
+    const fixture = buildFixture({
+      contextOverride: pullRequestContext,
+      installationToken: "ghs_PR_IMPLEMENT_TOKEN",
     });
 
-    const result = await service.execute({
+    const result = await fixture.service.execute({
       task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
       instruction: prImplementInstruction,
     });
 
-    assert.equal(result.status, "succeeded");
-    assert.equal(prComments.length, 1);
-    assert.match(prComments[0] ?? "", /no changes were needed/);
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(fixture.prImplementWorkspaceArgs[0]?.[2], pullRequestContext.headRef);
+    assert.equal(fixture.agentInputs[0]?.installationToken, "ghs_PR_IMPLEMENT_TOKEN");
+    assert.deepEqual(fixture.forbiddenCalls, []);
+  });
+
+  test("pr_implement: forwards rate_limited from the agent", async () => {
+    const fixture = buildFixture({
+      contextOverride: pullRequestContext,
+      agentRun: async () => ({
+        kind: "rate_limited",
+        agentName: "claude",
+        signal: "pattern=429",
+      }),
+    });
+
+    const result = await fixture.service.execute({
+      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+      instruction: prImplementInstruction,
+    });
+
+    assert.deepEqual(result, { status: "rate_limited", agentName: "claude" });
   });
 });
