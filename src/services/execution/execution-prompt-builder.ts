@@ -1,5 +1,8 @@
 import type { GitHubComment, GitHubSourceContext } from "../../domain/github.js";
-import type { InstructionDefinition } from "../../domain/instruction.js";
+import type {
+  ExecutionMode,
+  InstructionDefinition,
+} from "../../domain/instruction.js";
 import type { TaskRecord } from "../../domain/task.js";
 
 export interface BuildExecutionPromptInput {
@@ -13,7 +16,8 @@ export class ExecutionPromptBuilder {
     const { context, instruction, task } = input;
     const lines = [
       `Instruction: ${instruction.id}`,
-      `Mode: ${instruction.mode}`,
+      "Policy:",
+      ...this.buildPolicyLines(instruction.mode),
       `Repository: ${task.repo.owner}/${task.repo.name}`,
       `Source: ${task.source.kind} #${task.source.number}`,
       `Title: ${context.title}`,
@@ -47,6 +51,25 @@ export class ExecutionPromptBuilder {
     lines.push("", `Base: ${context.baseRef}`, `Head: ${context.headRef}`);
     this.appendAdditionalInstructions(lines, task.additionalInstructions);
     return lines.join("\n");
+  }
+
+  private buildPolicyLines(mode: ExecutionMode): string[] {
+    if (mode === "observe") {
+      return [
+        "- Mode: observe",
+        "- You may read files in the workspace.",
+        "- You may call GitHub APIs via `gh` (issue/PR/comment read AND write, cross-repo issue lookup).",
+        "- You MUST NOT modify files in the workspace, run `git add`, `git commit`, or `git push`.",
+        "- Use the workspace clone only as a read-only reference.",
+      ];
+    }
+
+    return [
+      "- Mode: mutate",
+      "- You may read and write files in the workspace.",
+      "- You may run `git add`, `git commit`. The runner pushes for you.",
+      "- You may call GitHub APIs via `gh` for read-only context. The runner publishes the PR.",
+    ];
   }
 
   private appendAdditionalInstructions(
