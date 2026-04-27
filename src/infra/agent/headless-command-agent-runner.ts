@@ -1,4 +1,5 @@
 import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
+import type { ExecutionMode } from "../../domain/instruction.js";
 import type { AgentRunner } from "./agent-runner.js";
 import type { ProcessRunner } from "../platform/process-runner.js";
 
@@ -7,15 +8,22 @@ export interface HeadlessCommandAgentRunnerOptions {
   args?: string[];
   processRunner: ProcessRunner;
   extraEnv?: NodeJS.ProcessEnv;
+  modeArgsBuilder?: (mode: ExecutionMode) => string[];
 }
 
 export class HeadlessCommandAgentRunner implements AgentRunner {
   constructor(private readonly options: HeadlessCommandAgentRunnerOptions) {}
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
+    const baseArgs = this.options.args ?? [];
+    const modeArgs =
+      this.options.modeArgsBuilder !== undefined
+        ? this.options.modeArgsBuilder(input.instruction.mode)
+        : [];
+
     const result = await this.options.processRunner.run({
       command: this.options.command,
-      args: this.options.args ?? [],
+      args: [...baseArgs, ...modeArgs],
       cwd: input.workspacePath,
       stdin: input.prompt,
       timeoutMs: input.instruction.execution.timeoutSec * 1000,

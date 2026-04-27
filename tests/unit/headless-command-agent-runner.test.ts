@@ -77,6 +77,32 @@ describe("HeadlessCommandAgentRunner env wiring", () => {
     assert.equal(calls[0]?.env?.GITHUB_TOKEN, "ghs_FAKE_TOKEN");
   });
 
+  test("modeArgsBuilder output is appended to base args", async () => {
+    const { processRunner, calls } = createRunner();
+    const runner = new HeadlessCommandAgentRunner({
+      command: "claude",
+      args: ["--print"],
+      processRunner,
+      modeArgsBuilder: (mode) =>
+        mode === "observe"
+          ? ["--allowed-tools", "Read"]
+          : ["--allowed-tools", "Edit"],
+    });
+
+    await runner.run({
+      task,
+      instruction,
+      workspacePath: "/tmp/ws",
+      prompt: "hello",
+    });
+
+    assert.deepEqual(calls[0]?.args, [
+      "--print",
+      "--allowed-tools",
+      "Read",
+    ]);
+  });
+
   test("does not set GH_TOKEN/GITHUB_TOKEN when no installation token is provided", async () => {
     const { processRunner, calls } = createRunner();
     const previousGh = process.env.GH_TOKEN;

@@ -14,6 +14,7 @@ import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
 import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detecting-agent-runner.js";
 import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
+import { buildClaudeToolArgs } from "./infra/agent/agent-tool-policies.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import {
@@ -99,6 +100,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
         command: agentConfig.commands[name]!.command,
         args: agentConfig.commands[name]!.args,
         processRunner,
+        ...(name === "claude" ? { modeArgsBuilder: buildClaudeToolArgs } : {}),
       });
 
       return {
