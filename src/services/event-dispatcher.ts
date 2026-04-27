@@ -1,6 +1,11 @@
 import type { RepoRef, SourceRef } from "../domain/task.js";
-import type { AgentRegistry } from "./agent-registry.js";
 import { parseCommand } from "../domain/rules/command-parser.js";
+import {
+  DEFAULT_ROUTING_RULES,
+  resolveInstructionId,
+  type RoutingRule,
+} from "../domain/rules/event-routing.js";
+import type { AgentRegistry } from "./agent-registry.js";
 
 export interface PullRequestState {
   number: number;
@@ -55,15 +60,18 @@ export interface EventDispatcherDependencies {
   agentRegistry: Pick<AgentRegistry, "has" | "getDefaultAgent">;
   botUserId: number;
   noAiLabel?: string;
+  routingRules?: readonly RoutingRule[];
 }
 
 const DEFAULT_NO_AI_LABEL = "no-ai";
 
 export class EventDispatcher {
   private readonly noAiLabel: string;
+  private readonly routingRules: readonly RoutingRule[];
 
   constructor(private readonly deps: EventDispatcherDependencies) {
     this.noAiLabel = deps.noAiLabel ?? DEFAULT_NO_AI_LABEL;
+    this.routingRules = deps.routingRules ?? DEFAULT_ROUTING_RULES;
   }
 
   dispatch(event: DispatchedEvent): DispatchAction {
@@ -92,9 +100,18 @@ export class EventDispatcher {
       };
     }
 
+    const instructionId = resolveInstructionId(this.routingRules, {
+      eventKind: "issue_opened",
+      verb: null,
+    });
+
+    if (instructionId === null) {
+      return { kind: "ignore", reason: "no routing rule matched" };
+    }
+
     return {
       kind: "enqueue",
-      instructionId: "issue-initial-review",
+      instructionId,
       agent: this.deps.agentRegistry.getDefaultAgent(),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
@@ -118,8 +135,14 @@ export class EventDispatcher {
       };
     }
 
-    const instructionId =
-      parsed.verb === "implement" ? "issue-implement" : "issue-comment-reply";
+    const instructionId = resolveInstructionId(this.routingRules, {
+      eventKind: "issue_comment",
+      verb: parsed.verb,
+    });
+
+    if (instructionId === null) {
+      return { kind: "ignore", reason: "no routing rule matched" };
+    }
 
     return {
       kind: "enqueue",
@@ -156,23 +179,20 @@ export class EventDispatcher {
       if (rejection !== null) {
         return rejection;
       }
+    }
 
-      return {
-        kind: "enqueue",
-        instructionId: "pr-implement",
-        agent: parsed.agent,
-        repo: event.repo,
-        source: { kind: "pull_request", number: event.pr.number },
-        requestedBy: event.sender.login,
-        ...(parsed.additionalInstructions.length > 0
-          ? { additionalInstructions: parsed.additionalInstructions }
-          : {}),
-      };
+    const instructionId = resolveInstructionId(this.routingRules, {
+      eventKind: "pr_comment",
+      verb: parsed.verb,
+    });
+
+    if (instructionId === null) {
+      return { kind: "ignore", reason: "no routing rule matched" };
     }
 
     return {
       kind: "enqueue",
-      instructionId: "pr-review-comment",
+      instructionId,
       agent: parsed.agent,
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
