@@ -177,4 +177,173 @@ describe("RunnerDaemon", () => {
     assert.ok(calls.includes("revert:task_1"));
     assert.ok(calls.some((c) => c.startsWith("log:task_1:rate-limited")));
   });
+
+  test("notifies task failure when execution throws a non rate-limit error", async () => {
+    const notified: Array<{ taskId: string; errorSummary: string }> = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (_taskId, instructionRevision) => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            instructionRevision,
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async (_taskId, input) => {
+          currentTask = {
+            ...currentTask,
+            status: input.status,
+            ...(input.errorSummary !== undefined
+              ? { errorSummary: input.errorSummary }
+              : {}),
+          };
+          return currentTask;
+        },
+        revertToQueued: async () => currentTask,
+        recoverRunningTasks: async () => {},
+      },
+      instructionLoader: {
+        loadById: async () => instruction,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      executionService: {
+        execute: async () => {
+          throw new Error("getSourceContext network failure");
+        },
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskFailure: async (task, errorSummary) => {
+        notified.push({ taskId: task.taskId, errorSummary });
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.equal(notified.length, 1);
+    assert.equal(notified[0]?.taskId, "task_1");
+    assert.match(notified[0]?.errorSummary ?? "", /getSourceContext/);
+  });
+
+  test("does not notify task failure on RateLimitedError", async () => {
+    const notified: string[] = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (_taskId, instructionRevision) => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            instructionRevision,
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          throw new Error("completeTask should not run for rate-limited tasks");
+        },
+        revertToQueued: async () => currentTask,
+        recoverRunningTasks: async () => {},
+      },
+      instructionLoader: {
+        loadById: async () => instruction,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      executionService: {
+        execute: async () => {
+          throw new RateLimitedError("claude");
+        },
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskFailure: async (task) => {
+        notified.push(task.taskId);
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.equal(notified.length, 0);
+  });
+
+  test("daemon survives when notifyTaskFailure throws", async () => {
+    const warnings: string[] = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (_taskId, instructionRevision) => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            instructionRevision,
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async (_taskId, input) => {
+          currentTask = {
+            ...currentTask,
+            status: input.status,
+            ...(input.errorSummary !== undefined
+              ? { errorSummary: input.errorSummary }
+              : {}),
+          };
+          return currentTask;
+        },
+        revertToQueued: async () => currentTask,
+        recoverRunningTasks: async () => {},
+      },
+      instructionLoader: {
+        loadById: async () => instruction,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      executionService: {
+        execute: async () => ({
+          status: "failed",
+          errorSummary: "boom",
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      warn: (message) => warnings.push(message),
+      notifyTaskFailure: async () => {
+        throw new Error("notify failed");
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.equal(currentTask.status, "failed");
+    assert.ok(
+      warnings.some((message) => message.includes("notifyTaskFailure threw")),
+      `expected a warning about notifyTaskFailure, got: ${warnings.join(", ")}`,
+    );
+  });
 });
