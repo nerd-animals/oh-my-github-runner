@@ -1,5 +1,5 @@
-import type { QueueTaskInput } from "../../domain/queue-task.js";
-import type { TaskRecord } from "../../domain/task.js";
+import type { QueueTaskInput } from "../queue-task.js";
+import type { TaskRecord } from "../task.js";
 
 export interface CompleteTaskInput {
   status: "succeeded" | "failed";

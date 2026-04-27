@@ -4,7 +4,7 @@ import type {
 } from "../../domain/github.js";
 import type { InstructionDefinition } from "../../domain/instruction.js";
 import type { TaskRecord } from "../../domain/task.js";
-import type { GitHubClient } from "../../infra/github/github-client.js";
+import type { GitHubClient } from "../../domain/ports/github-client.js";
 
 export interface GitHubResultWriterDependencies {
   githubClient: GitHubClient;

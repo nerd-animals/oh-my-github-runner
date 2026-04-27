@@ -13,7 +13,7 @@ import type {
   GitHubClient,
   IssueLabelsInfo,
   PullRequestStateInfo,
-} from "./github-client.js";
+} from "../../domain/ports/github-client.js";
 import { InstallationTokenCache } from "./installation-token-cache.js";
 
 export interface GitHubAppClientOptions {

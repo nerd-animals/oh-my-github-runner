@@ -1,10 +1,10 @@
 import type { InstructionDefinition } from "../domain/instruction.js";
 import type { GitHubSourceContext } from "../domain/github.js";
 import type { TaskRecord } from "../domain/task.js";
-import type { GitHubClient } from "../infra/github/github-client.js";
-import type { LogStore } from "../infra/logs/log-store.js";
-import type { QueueStore } from "../infra/queue/queue-store.js";
-import type { WorkspaceManager } from "../infra/workspaces/workspace-manager.js";
+import type { GitHubClient } from "../domain/ports/github-client.js";
+import type { LogStore } from "../domain/ports/log-store.js";
+import type { QueueStore } from "../domain/ports/queue-store.js";
+import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
 import type { AgentRegistry } from "./agent-registry.js";
 import { ExecutionPromptBuilder } from "./execution/execution-prompt-builder.js";
 import { GitHubResultWriter } from "./execution/github-result-writer.js";

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { GitWorkspaceManager } from "../../src/infra/workspaces/git-workspace-manager.js";
-import type { ProcessRunner } from "../../src/infra/platform/process-runner.js";
+import type { ProcessRunner } from "../../src/domain/ports/process-runner.js";
 
 interface RecordedCall {
   args: string[];

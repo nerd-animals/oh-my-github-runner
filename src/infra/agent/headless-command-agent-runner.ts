@@ -1,7 +1,7 @@
 import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
 import type { ExecutionMode } from "../../domain/instruction.js";
-import type { AgentRunner } from "./agent-runner.js";
-import type { ProcessRunner } from "../platform/process-runner.js";
+import type { AgentRunner } from "../../domain/ports/agent-runner.js";
+import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 
 export interface HeadlessCommandAgentRunnerOptions {
   command: string;

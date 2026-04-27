@@ -4,9 +4,9 @@ import { parse } from "yaml";
 import type {
   InstructionContext,
   InstructionDefinition,
-  InstructionLoader,
   InstructionPermissions,
 } from "../../domain/instruction.js";
+import type { InstructionLoader } from "../../domain/ports/instruction-loader.js";
 
 interface RawInstructionDefinition {
   id: string;

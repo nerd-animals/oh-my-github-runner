@@ -1,6 +1,6 @@
 import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
 import type { AgentRateLimitConfig } from "./agent-rate-limit-config.js";
-import type { AgentRunner } from "./agent-runner.js";
+import type { AgentRunner } from "../../domain/ports/agent-runner.js";
 
 export class RateLimitedError extends Error {
   constructor(public readonly agentName: string) {

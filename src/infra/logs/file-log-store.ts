@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import type { LogStore } from "./log-store.js";
+import type { LogStore } from "../../domain/ports/log-store.js";
 
 export interface FileLogStoreOptions {
   logsDir: string;

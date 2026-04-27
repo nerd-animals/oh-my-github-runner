@@ -1,4 +1,4 @@
-import type { AgentRunner } from "../infra/agent/agent-runner.js";
+import type { AgentRunner } from "../domain/ports/agent-runner.js";
 
 export interface AgentRegistryEntry {
   name: string;

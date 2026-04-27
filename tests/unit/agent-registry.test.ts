@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { AgentRunner } from "../../src/infra/agent/agent-runner.js";
+import type { AgentRunner } from "../../src/domain/ports/agent-runner.js";
 import {
   AgentRegistry,
   loadAgentConfigFromEnv,

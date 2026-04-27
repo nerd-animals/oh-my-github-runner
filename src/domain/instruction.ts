@@ -34,7 +34,3 @@ export interface InstructionDefinition {
   permissions: InstructionPermissions;
   execution: InstructionExecution;
 }
-
-export interface InstructionLoader {
-  loadById(instructionId: string): Promise<InstructionDefinition>;
-}

@@ -1,4 +1,4 @@
-import type { RepoRef, TaskRecord } from "../../domain/task.js";
+import type { RepoRef, TaskRecord } from "../task.js";
 
 export interface WorkspaceHandle {
   workspacePath: string;

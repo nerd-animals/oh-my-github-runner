@@ -1,7 +1,7 @@
-import type { InstructionLoader } from "../domain/instruction.js";
+import type { InstructionLoader } from "../domain/ports/instruction-loader.js";
+import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { QueueTaskInput } from "../domain/queue-task.js";
 import type { TaskRecord } from "../domain/task.js";
-import type { QueueStore } from "../infra/queue/queue-store.js";
 
 export interface EnqueueServiceDependencies {
   instructionLoader: InstructionLoader;

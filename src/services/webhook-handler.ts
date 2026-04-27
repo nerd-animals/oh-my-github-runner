@@ -1,5 +1,5 @@
 import type { RepoRef } from "../domain/task.js";
-import type { GitHubClient } from "../infra/github/github-client.js";
+import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { DeliveryDedupCache } from "../infra/webhook/delivery-dedup.js";
 import { verifyHubSignature } from "../infra/webhook/hmac-verifier.js";
 import type {

@@ -1,14 +1,14 @@
 import { access, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { RepoRef, TaskRecord } from "../../domain/task.js";
-import type { ProcessRunner } from "../platform/process-runner.js";
+import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 import { maskSecrets } from "./secret-mask.js";
 import type {
   MutateWorkspaceHandle,
   PushBranchOptions,
   WorkspaceHandle,
   WorkspaceManager,
-} from "./workspace-manager.js";
+} from "../../domain/ports/workspace-manager.js";
 
 export interface GitWorkspaceManagerOptions {
   reposDir: string;
