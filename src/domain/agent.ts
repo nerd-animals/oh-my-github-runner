@@ -6,6 +6,7 @@ export interface AgentRunInput {
   instruction: InstructionDefinition;
   workspacePath: string;
   prompt: string;
+  installationToken?: string;
 }
 
 export interface AgentRunResult {

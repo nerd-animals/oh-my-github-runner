@@ -38,4 +38,19 @@ describe("maskSecrets", () => {
     const input = "git push origin feature/x";
     assert.equal(maskSecrets(input), input);
   });
+
+  test("masks bare ghs_ installation tokens", () => {
+    const input = "GH_TOKEN=ghs_AbCdE12345abcdeABCDE6789xyz";
+    assert.equal(maskSecrets(input), "GH_TOKEN=ghs_***");
+  });
+
+  test("masks ghu_ user tokens", () => {
+    const input = "header: ghu_AbCdE12345abcdeABCDE6789xyz";
+    assert.equal(maskSecrets(input), "header: ghu_***");
+  });
+
+  test("masks gho_ oauth tokens", () => {
+    const input = "x-token=gho_AbCdE12345abcdeABCDE6789xyz tail";
+    assert.equal(maskSecrets(input), "x-token=gho_*** tail");
+  });
 });

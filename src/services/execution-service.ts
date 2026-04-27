@@ -92,6 +92,7 @@ export class ExecutionService {
           task: input.task,
           instruction: input.instruction,
           workspacePath: workspace.workspacePath,
+          installationToken,
           prompt: this.promptBuilder.build({
             task: input.task,
             instruction: input.instruction,
@@ -192,6 +193,7 @@ export class ExecutionService {
           task: input.task,
           instruction: input.instruction,
           workspacePath: workspace.workspacePath,
+          installationToken,
           prompt: this.promptBuilder.build({
             task: input.task,
             instruction: input.instruction,
@@ -260,6 +262,7 @@ export class ExecutionService {
           task: input.task,
           instruction: input.instruction,
           workspacePath: workspace.workspacePath,
+          installationToken,
           prompt: this.promptBuilder.build({
             task: input.task,
             instruction: input.instruction,

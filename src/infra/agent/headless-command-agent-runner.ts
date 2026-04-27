@@ -27,6 +27,12 @@ export class HeadlessCommandAgentRunner implements AgentRunner {
         RUNNER_INSTRUCTION_ID: input.instruction.id,
         RUNNER_REPO_OWNER: input.task.repo.owner,
         RUNNER_REPO_NAME: input.task.repo.name,
+        ...(input.installationToken !== undefined
+          ? {
+              GH_TOKEN: input.installationToken,
+              GITHUB_TOKEN: input.installationToken,
+            }
+          : {}),
       },
     });
 
