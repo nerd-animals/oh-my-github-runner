@@ -8,6 +8,6 @@ tunnel: <TUNNEL_UUID>
 credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
 
 ingress:
-  - hostname: oh-my-github-runner.darakbox.com
+  - hostname: <YOUR_RUNNER_HOST>          # e.g. oh-my-runner.example.com
     service: http://127.0.0.1:8080
   - service: http_status:404

@@ -5,7 +5,7 @@ Single Oracle VM deployment of the runner. Two long-running processes:
 - `oh-my-github-runner.service` — Node.js daemon (queue + webhook server,
   bound to `127.0.0.1:${WEBHOOK_PORT}`)
 - `cloudflared.service` — Cloudflare tunnel that exposes
-  `https://oh-my-github-runner.darakbox.com` to the runner's local port
+  `https://<your-runner-host>` to the runner's local port
 
 The runner runs as the existing `ubuntu` system user. Code lives under
 that user's home directory; secrets live under `/etc`.
@@ -17,11 +17,11 @@ that user's home directory; secrets live under `/etc`.
 - A GitHub App with:
   - Permissions: Issues (RW), Pull requests (RW), Contents (RW), Metadata (R)
   - Subscribed events: Issues, Issue comment, Pull request review comment
-  - Webhook URL: `https://oh-my-github-runner.darakbox.com/webhook`
+  - Webhook URL: `https://<your-runner-host>/webhook`
   - Webhook secret: any random string (saved as `GITHUB_WEBHOOK_SECRET`)
   - Private key downloaded to `/etc/oh-my-github-runner/github-app.pem`
-- `cloudflared` installed and authenticated against the
-  `darakbox.com` zone, with a tunnel created
+- `cloudflared` installed and authenticated against your DNS zone,
+  with a tunnel created
 - Tailscale up on the VM with `--ssh --advertise-tags=tag:server`
 
 ## Layout
@@ -101,7 +101,7 @@ the following are missing:
 ## Verifying the tunnel
 
 ```sh
-curl -i -X POST https://oh-my-github-runner.darakbox.com/webhook
+curl -i -X POST https://<your-runner-host>/webhook
 # Expect: HTTP/2 401 (no signature) — confirms the request reached Node.js
 ```
 
