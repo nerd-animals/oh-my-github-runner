@@ -3,24 +3,15 @@ import type { GitHubSourceContext } from "../domain/github.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { LogStore } from "../domain/ports/log-store.js";
-import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
 import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
-import { isObserveResultSuperseded } from "../domain/rules/stale-supersede.js";
-import {
-  buildBranchName,
-  buildCommitMessage,
-  buildPullRequestTitle,
-  withInstructionFooter,
-} from "../domain/rules/task-naming.js";
+import { buildBranchName } from "../domain/rules/task-naming.js";
 import type { AgentRegistry } from "./agent-registry.js";
-import { GitHubResultWriter } from "./execution/github-result-writer.js";
 
 export interface ExecutionServiceDependencies {
   githubClient: GitHubClient;
   workspaceManager: WorkspaceManager;
   agentRegistry: Pick<AgentRegistry, "resolve">;
-  queueStore: Pick<QueueStore, "listTasks">;
   logStore: LogStore;
 }
 
@@ -36,13 +27,8 @@ export type ExecuteTaskResult =
 
 export class ExecutionService {
   private readonly promptBuilder = new ExecutionPromptBuilder();
-  private readonly resultWriter: GitHubResultWriter;
 
-  constructor(private readonly dependencies: ExecutionServiceDependencies) {
-    this.resultWriter = new GitHubResultWriter({
-      githubClient: dependencies.githubClient,
-    });
-  }
+  constructor(private readonly dependencies: ExecutionServiceDependencies) {}
 
   async execute(input: ExecuteTaskInput): Promise<ExecuteTaskResult> {
     await this.dependencies.logStore.write(
@@ -72,114 +58,6 @@ export class ExecutionService {
     }
   }
 
-  private async executePrImplement(
-    input: ExecuteTaskInput,
-    context: GitHubSourceContext & { kind: "pull_request" },
-  ): Promise<ExecuteTaskResult> {
-    const headRef = context.headRef;
-    const installationToken =
-      await this.dependencies.githubClient.getInstallationAccessToken(
-        input.task.repo,
-      );
-    const workspace =
-      await this.dependencies.workspaceManager.preparePrImplementWorkspace(
-        input.task.repo,
-        input.task,
-        headRef,
-        installationToken,
-      );
-
-    try {
-      const agentResult = await this.dependencies.agentRegistry
-        .resolve(input.task.agent)
-        .run({
-          task: input.task,
-          instruction: input.instruction,
-          workspacePath: workspace.workspacePath,
-          installationToken,
-          prompt: this.promptBuilder.build({
-            task: input.task,
-            instruction: input.instruction,
-            context,
-          }),
-        });
-
-      if (agentResult.kind === "rate_limited") {
-        return { status: "rate_limited", agentName: agentResult.agentName };
-      }
-
-      if (agentResult.kind === "failed") {
-        return this.fail(
-          input.task.taskId,
-          agentResult.stderr || agentResult.stdout,
-        );
-      }
-
-      const hasChanges =
-        await this.dependencies.workspaceManager.hasChanges(workspace);
-
-      if (!hasChanges) {
-        await this.dependencies.githubClient.postPullRequestComment(
-          input.task.repo,
-          input.task.source.number,
-          withInstructionFooter(
-            "Ran `/claude implement`: no changes were needed.",
-            input.instruction,
-          ),
-        );
-        await this.dependencies.logStore.write(
-          input.task.taskId,
-          "pr-implement completed with no changes",
-        );
-        return { status: "succeeded" };
-      }
-
-      await this.dependencies.workspaceManager.commitAll(
-        workspace,
-        buildCommitMessage(input.task),
-      );
-
-      try {
-        const prImplementToken =
-          await this.dependencies.githubClient.getInstallationAccessToken(
-            input.task.repo,
-          );
-        await this.dependencies.workspaceManager.pushBranch(workspace, {
-          installationToken: prImplementToken,
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "git push failed";
-        await this.dependencies.githubClient.postPullRequestComment(
-          input.task.repo,
-          input.task.source.number,
-          withInstructionFooter(
-            `Failed to push commits to \`${headRef}\`: ${message}`,
-            input.instruction,
-          ),
-        );
-        return this.fail(input.task.taskId, message);
-      }
-
-      await this.dependencies.githubClient.postPullRequestComment(
-        input.task.repo,
-        input.task.source.number,
-        withInstructionFooter(
-          `Pushed commits to \`${headRef}\`.\n\n${agentResult.stdout.trim()}`,
-          input.instruction,
-        ),
-      );
-
-      await this.dependencies.logStore.write(
-        input.task.taskId,
-        `pr-implement pushed commits to ${headRef}`,
-      );
-      return { status: "succeeded" };
-    } finally {
-      await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
-    }
-  }
-
   private async executeObserve(
     input: ExecuteTaskInput,
     context: GitHubSourceContext,
@@ -188,59 +66,22 @@ export class ExecutionService {
       await this.dependencies.githubClient.getInstallationAccessToken(
         input.task.repo,
       );
-    const workspace = await this.dependencies.workspaceManager.prepareObserveWorkspace(
-      input.task,
-      context.kind === "pull_request" ? context.headRef : undefined,
-      installationToken,
-    );
-
-    try {
-      const agentResult = await this.dependencies.agentRegistry
-        .resolve(input.task.agent)
-        .run({
-          task: input.task,
-          instruction: input.instruction,
-          workspacePath: workspace.workspacePath,
-          installationToken,
-          prompt: this.promptBuilder.build({
-            task: input.task,
-            instruction: input.instruction,
-            context,
-          }),
-        });
-
-      if (agentResult.kind === "rate_limited") {
-        return { status: "rate_limited", agentName: agentResult.agentName };
-      }
-
-      if (agentResult.kind === "failed") {
-        return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);
-      }
-
-      const body = withInstructionFooter(
-        agentResult.stdout.trim(),
-        input.instruction,
+    const workspace =
+      await this.dependencies.workspaceManager.prepareObserveWorkspace(
+        input.task,
+        context.kind === "pull_request" ? context.headRef : undefined,
+        installationToken,
       );
 
-      const otherTasks = await this.dependencies.queueStore.listTasks();
+    try {
+      const agentResult = await this.runAgent(input, context, workspace.workspacePath, installationToken);
 
-      if (isObserveResultSuperseded(input.task, otherTasks)) {
-        await this.dependencies.logStore.write(
-          input.task.taskId,
-          "observe write-back skipped: superseded by newer task",
-        );
-        return { status: "succeeded" };
+      if (agentResult.terminal !== "succeeded") {
+        return agentResult.result;
       }
-
-      await this.resultWriter.writeObserveResult({
-        task: input.task,
-        instruction: input.instruction,
-        body,
-      });
 
       const dirty =
         await this.dependencies.workspaceManager.hasChanges(workspace);
-
       if (dirty) {
         await this.dependencies.logStore.write(
           input.task.taskId,
@@ -278,129 +119,96 @@ export class ExecutionService {
       );
 
     try {
-      const agentResult = await this.dependencies.agentRegistry
-        .resolve(input.task.agent)
-        .run({
-          task: input.task,
-          instruction: input.instruction,
-          workspacePath: workspace.workspacePath,
-          installationToken,
-          prompt: this.promptBuilder.build({
-            task: input.task,
-            instruction: input.instruction,
-            context,
-          }),
-        });
+      const agentResult = await this.runAgent(input, context, workspace.workspacePath, installationToken);
 
-      if (agentResult.kind === "rate_limited") {
-        return { status: "rate_limited", agentName: agentResult.agentName };
+      if (agentResult.terminal !== "succeeded") {
+        return agentResult.result;
       }
 
-      if (agentResult.kind === "failed") {
-        const summary = (agentResult.stderr || agentResult.stdout).trim();
-        await this.postSourceComment(
-          input,
-          withInstructionFooter(
-            `Ran \`/claude implement\`: agent exited with code ${agentResult.exitCode}.\n\n${truncate(summary, 1500)}`,
-            input.instruction,
-          ),
-        );
-        return this.fail(input.task.taskId, summary);
-      }
-
-      const hasChanges =
-        await this.dependencies.workspaceManager.hasChanges(workspace);
-
-      if (!hasChanges) {
-        await this.postSourceComment(
-          input,
-          withInstructionFooter(
-            "Ran `/claude implement`: no changes were needed.",
-            input.instruction,
-          ),
-        );
-        await this.dependencies.logStore.write(
-          input.task.taskId,
-          "mutate completed with no changes",
-        );
-        return { status: "succeeded" };
-      }
-
-      try {
-        await this.dependencies.workspaceManager.commitAll(
-          workspace,
-          buildCommitMessage(input.task),
-        );
-        const mutateToken =
-          await this.dependencies.githubClient.getInstallationAccessToken(
-            input.task.repo,
-          );
-        await this.dependencies.workspaceManager.pushBranch(workspace, {
-          installationToken: mutateToken,
-        });
-
-        const prBody = withInstructionFooter(
-          agentResult.stdout.trim(),
-          input.instruction,
-        );
-        const prTitle = buildPullRequestTitle(input.task);
-        const pullRequest = await this.resultWriter.writeMutateResult({
-          task: input.task,
-          instruction: input.instruction,
-          baseBranch,
-          branchName: workspace.branchName,
-          title: prTitle,
-          body: prBody,
-        });
-
-        await this.dependencies.logStore.write(
-          input.task.taskId,
-          `mutate completed with PR ${pullRequest.url}`,
-        );
-        return { status: "succeeded" };
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "mutate publish failed";
-        await this.postSourceComment(
-          input,
-          withInstructionFooter(
-            `Ran \`/claude implement\`: failed to publish result.\n\n${truncate(message, 1500)}`,
-            input.instruction,
-          ),
-        );
-        return this.fail(input.task.taskId, message);
-      }
+      await this.dependencies.logStore.write(
+        input.task.taskId,
+        `mutate completed on branch ${workspace.branchName}`,
+      );
+      return { status: "succeeded" };
     } finally {
       await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
     }
   }
 
-  private async postSourceComment(
+  private async executePrImplement(
     input: ExecuteTaskInput,
-    body: string,
-  ): Promise<void> {
+    context: GitHubSourceContext & { kind: "pull_request" },
+  ): Promise<ExecuteTaskResult> {
+    const installationToken =
+      await this.dependencies.githubClient.getInstallationAccessToken(
+        input.task.repo,
+      );
+    const workspace =
+      await this.dependencies.workspaceManager.preparePrImplementWorkspace(
+        input.task.repo,
+        input.task,
+        context.headRef,
+        installationToken,
+      );
+
     try {
-      if (input.task.source.kind === "issue") {
-        await this.dependencies.githubClient.postIssueComment(
-          input.task.repo,
-          input.task.source.number,
-          body,
-        );
-      } else {
-        await this.dependencies.githubClient.postPullRequestComment(
-          input.task.repo,
-          input.task.source.number,
-          body,
-        );
+      const agentResult = await this.runAgent(input, context, workspace.workspacePath, installationToken);
+
+      if (agentResult.terminal !== "succeeded") {
+        return agentResult.result;
       }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : String(error);
+
       await this.dependencies.logStore.write(
         input.task.taskId,
-        `failed to post fallback comment: ${message}`,
+        `pr-implement completed on ${context.headRef}`,
       );
+      return { status: "succeeded" };
+    } finally {
+      await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
     }
+  }
+
+  private async runAgent(
+    input: ExecuteTaskInput,
+    context: GitHubSourceContext,
+    workspacePath: string,
+    installationToken: string,
+  ): Promise<
+    | { terminal: "succeeded" }
+    | { terminal: "early"; result: ExecuteTaskResult }
+  > {
+    const agentResult = await this.dependencies.agentRegistry
+      .resolve(input.task.agent)
+      .run({
+        task: input.task,
+        instruction: input.instruction,
+        workspacePath,
+        installationToken,
+        prompt: this.promptBuilder.build({
+          task: input.task,
+          instruction: input.instruction,
+          context,
+        }),
+      });
+
+    if (agentResult.kind === "rate_limited") {
+      return {
+        terminal: "early",
+        result: { status: "rate_limited", agentName: agentResult.agentName },
+      };
+    }
+
+    if (agentResult.kind === "failed") {
+      return {
+        terminal: "early",
+        result: await this.fail(
+          input.task.taskId,
+          agentResult.stderr || agentResult.stdout,
+        ),
+      };
+    }
+
+    return { terminal: "succeeded" };
   }
 
   private async fail(taskId: string, rawError: string): Promise<ExecuteTaskResult> {
@@ -411,12 +219,4 @@ export class ExecutionService {
       errorSummary,
     };
   }
-}
-
-function truncate(text: string, maxLength: number): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-  return `${trimmed.slice(0, maxLength)}\n…(truncated, original ${trimmed.length} bytes)`;
 }
