@@ -6,7 +6,7 @@
 #   <ssh_user> ALL=(root) NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
 set -euo pipefail
 
-REPO_ROOT=${REPO_ROOT:-/home/ubuntu/oh-my-github-runner}
+REPO_ROOT=${REPO_ROOT:-/home/ubuntu/runner-deploy}
 SERVICE=${SERVICE:-oh-my-github-runner.service}
 
 cd "$REPO_ROOT"
