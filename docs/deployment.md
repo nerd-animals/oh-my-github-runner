@@ -27,21 +27,30 @@ that user's home directory; secrets live under `/etc`.
 ## Layout
 
 ```
-/home/ubuntu/oh-my-github-runner/        # cloned source + dist/ + var/
+/home/ubuntu/runner-deploy/              # deploy clone — what systemd runs;
+                                         # owns dist/ and var/ (queue, logs,
+                                         # repo mirrors, workspaces)
+/home/ubuntu/oh-my-github-runner/        # (optional) dev clone — where you
+                                         # edit code; not touched by deploy
 /etc/oh-my-github-runner/runner.env      # env file (see .env.example)
 /etc/oh-my-github-runner/github-app.pem  # GitHub App private key
 /etc/cloudflared/config.yml              # tunnel ingress
 ```
+
+The dev clone is optional — only the `runner-deploy` clone has to exist on
+the VM. Splitting them keeps editor / linter / build artifacts isolated
+from the running daemon and prevents `git reset --hard` (run by the deploy
+script) from clobbering an in-progress edit.
 
 ## Install
 
 ```sh
 sudo mkdir -p /etc/oh-my-github-runner
 
-# fetch + first build
+# fetch + first build (deploy clone)
 git clone https://github.com/SanGyuk-Raccoon/oh-my-github-runner.git \
-  ~/oh-my-github-runner
-cd ~/oh-my-github-runner
+  /home/ubuntu/runner-deploy
+cd /home/ubuntu/runner-deploy
 npm ci
 npm run compile
 

@@ -38,4 +38,4 @@ jobs:
               -o BatchMode=yes \
               -o ConnectTimeout=10 \
               ubuntu@github-runner \
-              'bash /home/ubuntu/oh-my-github-runner/ops/scripts/deploy.sh'
+              'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'
