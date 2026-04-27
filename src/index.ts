@@ -145,6 +145,30 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     rateLimitStateStore,
     rateLimitCooldownMs,
     registeredAgents: agentConfig.agents,
+    notifyTaskFailure: async (task, errorSummary) => {
+      const body = `Task \`${task.taskId}\` failed before completion: ${errorSummary}`;
+      try {
+        if (task.source.kind === "issue") {
+          await githubClient.postIssueComment(
+            task.repo,
+            task.source.number,
+            body,
+          );
+        } else {
+          await githubClient.postPullRequestComment(
+            task.repo,
+            task.source.number,
+            body,
+          );
+        }
+      } catch (error) {
+        console.warn(
+          `[daemon] failed to post failure comment for task=${task.taskId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    },
   });
 
   const repoAllowlist = RepoAllowlist.fromEnv(process.env.ALLOWED_REPOS);

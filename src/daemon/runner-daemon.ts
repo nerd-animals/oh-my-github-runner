@@ -20,6 +20,10 @@ export interface RunnerDaemonDependencies {
   idleWarningIntervalMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
+  notifyTaskFailure?: (
+    task: TaskRecord,
+    errorSummary: string,
+  ) => Promise<void>;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -177,6 +181,21 @@ export class RunnerDaemon {
       console.error(
         `[daemon] fail task=${task.taskId} error=${result.errorSummary ?? "unknown"}`,
       );
+
+      if (this.dependencies.notifyTaskFailure !== undefined) {
+        try {
+          await this.dependencies.notifyTaskFailure(
+            task,
+            result.errorSummary ?? "unknown",
+          );
+        } catch (error) {
+          this.warn(
+            `[daemon] notifyTaskFailure threw: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     }
 
     await this.dependencies.queueStore.completeTask(task.taskId, result);
