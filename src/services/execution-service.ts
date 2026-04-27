@@ -5,10 +5,16 @@ import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
+import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
+import { isObserveResultSuperseded } from "../domain/rules/stale-supersede.js";
+import {
+  buildBranchName,
+  buildCommitMessage,
+  buildPullRequestTitle,
+  withInstructionFooter,
+} from "../domain/rules/task-naming.js";
 import type { AgentRegistry } from "./agent-registry.js";
-import { ExecutionPromptBuilder } from "./execution/execution-prompt-builder.js";
 import { GitHubResultWriter } from "./execution/github-result-writer.js";
-import { isObserveResultSuperseded } from "./stale-supersede.js";
 
 export interface ExecutionServiceDependencies {
   githubClient: GitHubClient;
@@ -114,7 +120,7 @@ export class ExecutionService {
         await this.dependencies.githubClient.postPullRequestComment(
           input.task.repo,
           input.task.source.number,
-          this.withInstructionFooter(
+          withInstructionFooter(
             "Ran `/claude implement`: no changes were needed.",
             input.instruction,
           ),
@@ -128,7 +134,7 @@ export class ExecutionService {
 
       await this.dependencies.workspaceManager.commitAll(
         workspace,
-        this.buildCommitMessage(input.task),
+        buildCommitMessage(input.task),
       );
 
       try {
@@ -145,7 +151,7 @@ export class ExecutionService {
         await this.dependencies.githubClient.postPullRequestComment(
           input.task.repo,
           input.task.source.number,
-          this.withInstructionFooter(
+          withInstructionFooter(
             `Failed to push commits to \`${headRef}\`: ${message}`,
             input.instruction,
           ),
@@ -156,7 +162,7 @@ export class ExecutionService {
       await this.dependencies.githubClient.postPullRequestComment(
         input.task.repo,
         input.task.source.number,
-        this.withInstructionFooter(
+        withInstructionFooter(
           `Pushed commits to \`${headRef}\`.\n\n${agentResult.stdout.trim()}`,
           input.instruction,
         ),
@@ -205,7 +211,7 @@ export class ExecutionService {
         return this.fail(input.task.taskId, agentResult.stderr || agentResult.stdout);
       }
 
-      const body = this.withInstructionFooter(
+      const body = withInstructionFooter(
         agentResult.stdout.trim(),
         input.instruction,
       );
@@ -251,7 +257,7 @@ export class ExecutionService {
       context.kind === "pull_request"
         ? context.baseRef
         : await this.dependencies.githubClient.getDefaultBranch(input.task.repo);
-    const branchName = this.buildBranchName(input.task);
+    const branchName = buildBranchName(input.task);
     const installationToken =
       await this.dependencies.githubClient.getInstallationAccessToken(
         input.task.repo,
@@ -284,7 +290,7 @@ export class ExecutionService {
         const summary = (agentResult.stderr || agentResult.stdout).trim();
         await this.postSourceComment(
           input,
-          this.withInstructionFooter(
+          withInstructionFooter(
             `Ran \`/claude implement\`: agent exited with code ${agentResult.exitCode}.\n\n${truncate(summary, 1500)}`,
             input.instruction,
           ),
@@ -298,7 +304,7 @@ export class ExecutionService {
       if (!hasChanges) {
         await this.postSourceComment(
           input,
-          this.withInstructionFooter(
+          withInstructionFooter(
             "Ran `/claude implement`: no changes were needed.",
             input.instruction,
           ),
@@ -313,7 +319,7 @@ export class ExecutionService {
       try {
         await this.dependencies.workspaceManager.commitAll(
           workspace,
-          this.buildCommitMessage(input.task),
+          buildCommitMessage(input.task),
         );
         const mutateToken =
           await this.dependencies.githubClient.getInstallationAccessToken(
@@ -323,11 +329,11 @@ export class ExecutionService {
           installationToken: mutateToken,
         });
 
-        const prBody = this.withInstructionFooter(
+        const prBody = withInstructionFooter(
           agentResult.stdout.trim(),
           input.instruction,
         );
-        const prTitle = this.buildPullRequestTitle(input.task);
+        const prTitle = buildPullRequestTitle(input.task);
         const pullRequest = await this.resultWriter.writeMutateResult({
           task: input.task,
           instruction: input.instruction,
@@ -347,7 +353,7 @@ export class ExecutionService {
           error instanceof Error ? error.message : "mutate publish failed";
         await this.postSourceComment(
           input,
-          this.withInstructionFooter(
+          withInstructionFooter(
             `Ran \`/claude implement\`: failed to publish result.\n\n${truncate(message, 1500)}`,
             input.instruction,
           ),
@@ -394,30 +400,6 @@ export class ExecutionService {
       status: "failed",
       errorSummary,
     };
-  }
-
-  private withInstructionFooter(
-    body: string,
-    instruction: InstructionDefinition,
-  ): string {
-    const trimmedBody = body.length > 0 ? body : "No summary provided.";
-    return `${trimmedBody}\n\n_Instruction: ${instruction.id} r${instruction.revision}_`;
-  }
-
-  private buildBranchName(task: TaskRecord): string {
-    return `ai/${task.source.kind}-${task.source.number}`;
-  }
-
-  private buildCommitMessage(task: TaskRecord): string {
-    return `feat: address ${task.source.kind} #${task.source.number}`;
-  }
-
-  private buildPullRequestTitle(task: TaskRecord): string {
-    if (task.source.kind === "issue") {
-      return `Resolve issue #${task.source.number}`;
-    }
-
-    return `Follow up for PR #${task.source.number}`;
   }
 }
 

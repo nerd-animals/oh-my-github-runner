@@ -1,6 +1,6 @@
 import type { RepoRef, SourceRef } from "../domain/task.js";
 import type { AgentRegistry } from "./agent-registry.js";
-import { parseCommand } from "./command-parser.js";
+import { parseCommand } from "../domain/rules/command-parser.js";
 
 export interface PullRequestState {
   number: number;

@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { ExecutionPromptBuilder } from "../../src/services/execution/execution-prompt-builder.js";
+import { ExecutionPromptBuilder } from "../../src/domain/rules/execution-prompt.js";
 
 const baseTask: TaskRecord = {
   taskId: "task_1",

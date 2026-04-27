@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { isObserveResultSuperseded } from "../../src/services/stale-supersede.js";
+import { isObserveResultSuperseded } from "../../src/domain/rules/stale-supersede.js";
 
 const baseTask: TaskRecord = {
   taskId: "task_current",
