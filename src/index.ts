@@ -17,6 +17,7 @@ import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.
 import { buildClaudeToolArgs } from "./infra/agent/agent-tool-policies.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
+import { loadPromptAssets } from "./infra/prompts/prompt-asset-loader.js";
 import {
   AgentRegistry,
   loadAgentConfigFromEnv,
@@ -160,6 +161,11 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     path.join(runnerRoot, "definitions", "instructions"),
   );
 
+  const promptAssets = await loadPromptAssets({
+    promptsDir: path.join(runnerRoot, "definitions", "prompts"),
+    personaName: "architecture",
+  });
+
   const daemon = new RunnerDaemon({
     queueStore,
     instructionLoader,
@@ -169,6 +175,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       workspaceManager,
       agentRegistry,
       logStore,
+      promptAssets,
     }),
     logStore,
     pollIntervalMs,

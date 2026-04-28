@@ -11,7 +11,21 @@ export interface BuildExecutionPromptInput {
   context: GitHubSourceContext;
 }
 
+export interface ExecutionPromptBuilderOptions {
+  commonRules: string;
+  persona: string;
+}
+
 export class ExecutionPromptBuilder {
+  private readonly preamble: string;
+
+  constructor(options: ExecutionPromptBuilderOptions) {
+    this.preamble = [options.commonRules, options.persona]
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .join("\n\n");
+  }
+
   build(input: BuildExecutionPromptInput): string {
     const { context, instruction, task } = input;
     const lines = [
@@ -33,7 +47,7 @@ export class ExecutionPromptBuilder {
       }
 
       this.appendAdditionalInstructions(lines, task.additionalInstructions);
-      return lines.join("\n");
+      return this.withPreamble(lines.join("\n"));
     }
 
     if (instruction.context.includePrBody === true) {
@@ -50,7 +64,14 @@ export class ExecutionPromptBuilder {
 
     lines.push("", `Base: ${context.baseRef}`, `Head: ${context.headRef}`);
     this.appendAdditionalInstructions(lines, task.additionalInstructions);
-    return lines.join("\n");
+    return this.withPreamble(lines.join("\n"));
+  }
+
+  private withPreamble(core: string): string {
+    if (this.preamble.length === 0) {
+      return core;
+    }
+    return `${this.preamble}\n\n${core}`;
   }
 
   private buildPolicyLines(mode: ExecutionMode): string[] {

@@ -61,9 +61,11 @@ const mutateInstruction: InstructionDefinition = {
   },
 };
 
+const emptyAssets = { commonRules: "", persona: "" };
+
 describe("ExecutionPromptBuilder", () => {
   test("observe prompts forbid workspace writes and tell the agent to post comments itself", () => {
-    const prompt = new ExecutionPromptBuilder().build({
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
       task: baseTask,
       instruction: observeInstruction,
       context: issueContext,
@@ -77,7 +79,7 @@ describe("ExecutionPromptBuilder", () => {
   });
 
   test("mutate prompts allow push and gh pr create but tell the agent not to merge", () => {
-    const prompt = new ExecutionPromptBuilder().build({
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
       task: baseTask,
       instruction: mutateInstruction,
       context: issueContext,
@@ -90,5 +92,45 @@ describe("ExecutionPromptBuilder", () => {
     assert.match(prompt, /server-protected/);
     assert.match(prompt, /MUST NOT merge/);
     assert.match(prompt, /gh pr merge.*blocked/);
+  });
+
+  test("prepends common rules and persona before the instruction core", () => {
+    const prompt = new ExecutionPromptBuilder({
+      commonRules: "# Common Work Rules\nFollow them.",
+      persona: "# Architecture Persona\nReason in layers.",
+    }).build({
+      task: baseTask,
+      instruction: observeInstruction,
+      context: issueContext,
+    });
+
+    const commonIndex = prompt.indexOf("Common Work Rules");
+    const personaIndex = prompt.indexOf("Architecture Persona");
+    const instructionIndex = prompt.indexOf("Instruction: issue-comment-reply");
+
+    assert.notEqual(commonIndex, -1, "common rules must appear in prompt");
+    assert.notEqual(personaIndex, -1, "persona must appear in prompt");
+    assert.notEqual(instructionIndex, -1, "instruction header must appear");
+    assert.ok(
+      commonIndex < personaIndex,
+      "common rules should precede persona",
+    );
+    assert.ok(
+      personaIndex < instructionIndex,
+      "persona should precede instruction core",
+    );
+  });
+
+  test("omits preamble when both common rules and persona are empty", () => {
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: observeInstruction,
+      context: issueContext,
+    });
+
+    assert.ok(
+      prompt.startsWith("Instruction: issue-comment-reply"),
+      "prompt should start with instruction header when no preamble assets",
+    );
   });
 });
