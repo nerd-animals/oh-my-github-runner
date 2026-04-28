@@ -31,6 +31,8 @@ export interface InstructionDefinition {
   sourceKind: SourceKind;
   mode: ExecutionMode;
   workflow: InstructionWorkflow;
+  persona: string;
+  guidance?: string;
   context: InstructionContext;
   githubActions: string[];
   permissions: InstructionPermissions;

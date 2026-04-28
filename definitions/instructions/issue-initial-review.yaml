@@ -3,6 +3,7 @@ revision: 3
 source_kind: issue
 mode: observe
 workflow: observe
+persona: architecture
 context:
   include_issue_body: true
   include_issue_comments: false

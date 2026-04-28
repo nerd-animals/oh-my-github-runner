@@ -14,6 +14,7 @@ interface RawInstructionDefinition {
   source_kind: InstructionDefinition["sourceKind"];
   mode: InstructionDefinition["mode"];
   workflow: InstructionDefinition["workflow"];
+  persona: string;
   context?: Record<string, boolean>;
   permissions: {
     code_read: boolean;
@@ -67,6 +68,25 @@ function mapPermissions(
   };
 }
 
+async function readGuidanceIfPresent(
+  definitionsDir: string,
+  instructionId: string,
+): Promise<string | undefined> {
+  const guidancePath = path.resolve(definitionsDir, `${instructionId}.md`);
+  try {
+    const content = await readFile(guidancePath, "utf8");
+    return content.trim();
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    ) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
 export async function loadInstructionDefinition({
   definitionsDir,
   instructionId,
@@ -75,12 +95,22 @@ export async function loadInstructionDefinition({
   const fileContents = await readFile(filePath, "utf8");
   const raw = parse(fileContents) as RawInstructionDefinition;
 
+  if (typeof raw.persona !== "string" || raw.persona.length === 0) {
+    throw new Error(
+      `Instruction ${instructionId} is missing required 'persona' field`,
+    );
+  }
+
+  const guidance = await readGuidanceIfPresent(definitionsDir, instructionId);
+
   return {
     id: raw.id,
     revision: raw.revision,
     sourceKind: raw.source_kind,
     mode: raw.mode,
     workflow: raw.workflow,
+    persona: raw.persona,
+    ...(guidance !== undefined ? { guidance } : {}),
     context: mapContext(raw.context),
     permissions: mapPermissions(raw.permissions),
     githubActions: raw.github_actions,

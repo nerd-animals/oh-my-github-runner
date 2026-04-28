@@ -14,6 +14,7 @@ const observeInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "observe",
   workflow: "observe",
+  persona: "architecture",
   context: {
     includeIssueBody: true,
     includeIssueComments: true,
@@ -36,6 +37,7 @@ const mutateInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "mutate",
   workflow: "mutate",
+  persona: "implementation",
   context: { includeIssueBody: true, includeIssueComments: true },
   permissions: {
     codeRead: true,
@@ -55,6 +57,7 @@ const prImplementInstruction: InstructionDefinition = {
   sourceKind: "pull_request",
   mode: "mutate",
   workflow: "pr_implement",
+  persona: "implementation",
   context: {
     includePrBody: true,
     includePrComments: true,
@@ -246,7 +249,7 @@ function buildFixture(options: BuildOptions = {}): Fixture {
     },
     promptAssets: {
       commonRules: "",
-      persona: "",
+      personas: { architecture: "", implementation: "" },
       modePolicies: {
         observe: "- Mode: observe",
         mutate: "- Mode: mutate",

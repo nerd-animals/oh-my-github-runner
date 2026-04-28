@@ -5,25 +5,31 @@ import { loadPromptAssets } from "../../src/infra/prompts/prompt-asset-loader.js
 const promptsDir = "definitions/prompts";
 
 describe("loadPromptAssets", () => {
-  test("loads common work-rules and the named persona, trimmed", async () => {
-    const assets = await loadPromptAssets({
-      promptsDir,
-      personaName: "architecture",
-    });
+  test("loads common work-rules, trimmed", async () => {
+    const assets = await loadPromptAssets({ promptsDir });
 
     assert.ok(assets.commonRules.length > 0);
-    assert.ok(assets.persona.length > 0);
     assert.match(assets.commonRules, /Common Work Rules/);
-    assert.match(assets.persona, /Architecture Persona/);
     assert.equal(assets.commonRules, assets.commonRules.trim());
-    assert.equal(assets.persona, assets.persona.trim());
+  });
+
+  test("loads every persona file from personas/ as a name → trimmed-content map", async () => {
+    const assets = await loadPromptAssets({ promptsDir });
+
+    assert.ok("architecture" in assets.personas);
+    assert.ok("implementation" in assets.personas);
+
+    for (const [name, content] of Object.entries(assets.personas)) {
+      assert.ok(content.length > 0, `persona ${name} should be non-empty`);
+      assert.equal(content, content.trim(), `persona ${name} should be trimmed`);
+    }
+
+    assert.match(assets.personas.architecture!, /Architecture Persona/);
+    assert.match(assets.personas.implementation!, /Implementation Persona/);
   });
 
   test("loads observe and mutate mode policies, trimmed", async () => {
-    const assets = await loadPromptAssets({
-      promptsDir,
-      personaName: "architecture",
-    });
+    const assets = await loadPromptAssets({ promptsDir });
 
     assert.ok(assets.modePolicies.observe.length > 0);
     assert.ok(assets.modePolicies.mutate.length > 0);
@@ -47,12 +53,5 @@ describe("loadPromptAssets", () => {
     assert.match(assets.modePolicies.mutate, /non-fast-forward/);
     assert.match(assets.modePolicies.mutate, /protected branch/);
     assert.match(assets.modePolicies.mutate, /auth/);
-  });
-
-  test("rejects when the persona file does not exist", async () => {
-    await assert.rejects(
-      loadPromptAssets({ promptsDir, personaName: "no-such-persona" }),
-      /ENOENT/,
-    );
   });
 });

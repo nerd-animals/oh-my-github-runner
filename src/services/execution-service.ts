@@ -33,7 +33,7 @@ export class ExecutionService {
   constructor(private readonly dependencies: ExecutionServiceDependencies) {
     this.promptBuilder = new ExecutionPromptBuilder({
       commonRules: dependencies.promptAssets.commonRules,
-      persona: dependencies.promptAssets.persona,
+      personas: dependencies.promptAssets.personas,
       modePolicies: dependencies.promptAssets.modePolicies,
     });
   }

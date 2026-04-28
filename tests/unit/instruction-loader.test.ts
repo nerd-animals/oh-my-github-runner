@@ -86,6 +86,40 @@ describe("loadInstructionDefinition", () => {
     );
   });
 
+  test("persona field is required and read from yaml", async () => {
+    const review = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-initial-review",
+    });
+    const implement = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-implement",
+    });
+
+    assert.equal(review.persona, "architecture");
+    assert.equal(implement.persona, "implementation");
+  });
+
+  test("guidance is loaded from sibling <id>.md when present", async () => {
+    const implement = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-implement",
+    });
+    assert.ok(
+      typeof implement.guidance === "string" && implement.guidance.length > 0,
+      "issue-implement should have sibling guidance md",
+    );
+    assert.match(implement.guidance!, /Closes #/);
+  });
+
+  test("guidance is undefined when no sibling md exists", async () => {
+    const review = await loadInstructionDefinition({
+      definitionsDir,
+      instructionId: "issue-initial-review",
+    });
+    assert.equal(review.guidance, undefined);
+  });
+
   test("workflow field maps observe/mutate/pr_implement from yaml", async () => {
     const observe = await loadInstructionDefinition({
       definitionsDir,
