@@ -26,6 +26,7 @@ const issueContext: GitHubSourceContext = {
   title: "Title",
   body: "Body",
   comments: [],
+  linkedRefs: { closes: [], bodyMentions: [] },
 };
 
 const observeInstruction: InstructionDefinition = {
@@ -142,5 +143,88 @@ describe("ExecutionPromptBuilder", () => {
       prompt.startsWith("Instruction: issue-comment-reply"),
       "prompt should start with instruction header when no preamble assets",
     );
+  });
+
+  test("issue: emits 'Linked PRs (closes): - none' when there are no linked refs", () => {
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: observeInstruction,
+      context: issueContext,
+    });
+
+    assert.match(prompt, /Linked PRs \(closes\):\n- none/);
+    assert.ok(!prompt.includes("Referenced (body mentions):"));
+  });
+
+  test("issue: renders closes and body mentions with kind, state, and title", () => {
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: observeInstruction,
+      context: {
+        ...issueContext,
+        linkedRefs: {
+          closes: [
+            {
+              kind: "pull_request",
+              number: 36,
+              title: "webhook plan",
+              state: "closed",
+              merged: true,
+            },
+          ],
+          bodyMentions: [
+            {
+              kind: "issue",
+              number: 47,
+              title: "agent-driven mode",
+              state: "closed",
+            },
+          ],
+        },
+      },
+    });
+
+    assert.match(
+      prompt,
+      /Linked PRs \(closes\):\n- pr #36 \(merged\) — webhook plan/,
+    );
+    assert.match(
+      prompt,
+      /Referenced \(body mentions\):\n- issue #47 \(closed\) — agent-driven mode/,
+    );
+  });
+
+  test("pull request: renders 'Linked Issues (closes):' and places it after Base/Head", () => {
+    const prContext: GitHubSourceContext = {
+      kind: "pull_request",
+      title: "PR Title",
+      body: "PR Body",
+      comments: [],
+      diff: "",
+      baseRef: "main",
+      headRef: "feature/x",
+      linkedRefs: {
+        closes: [
+          { kind: "issue", number: 41, title: "include_linked_prs", state: "open" },
+        ],
+        bodyMentions: [],
+      },
+    };
+
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: { ...observeInstruction, sourceKind: "pull_request" },
+      context: prContext,
+    });
+
+    const baseIndex = prompt.indexOf("Base: main");
+    const linkedIndex = prompt.indexOf("Linked Issues (closes):");
+    assert.notEqual(baseIndex, -1, "Base/Head block must appear");
+    assert.notEqual(linkedIndex, -1, "Linked Issues section must appear");
+    assert.ok(
+      baseIndex < linkedIndex,
+      "Linked Issues section should follow Base/Head",
+    );
+    assert.match(prompt, /- issue #41 \(open\) — include_linked_prs/);
   });
 });

@@ -1,12 +1,11 @@
 id: issue-implement
-revision: 2
+revision: 3
 source_kind: issue
 mode: mutate
 workflow: mutate
 context:
   include_issue_body: true
   include_issue_comments: true
-  include_linked_prs: true
 permissions:
   code_read: true
   code_write: true

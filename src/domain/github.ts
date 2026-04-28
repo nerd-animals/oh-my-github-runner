@@ -5,11 +5,28 @@ export interface GitHubComment {
   body: string;
 }
 
+export type LinkedRefKind = "issue" | "pull_request";
+export type LinkedRefState = "open" | "closed";
+
+export interface LinkedRefEntry {
+  kind: LinkedRefKind;
+  number: number;
+  title: string;
+  state: LinkedRefState;
+  merged?: boolean;
+}
+
+export interface LinkedRefs {
+  closes: LinkedRefEntry[];
+  bodyMentions: LinkedRefEntry[];
+}
+
 export interface GitHubIssueContext {
   kind: "issue";
   title: string;
   body: string;
   comments: GitHubComment[];
+  linkedRefs: LinkedRefs;
 }
 
 export interface GitHubPullRequestContext {
@@ -20,6 +37,7 @@ export interface GitHubPullRequestContext {
   diff: string;
   baseRef: string;
   headRef: string;
+  linkedRefs: LinkedRefs;
 }
 
 export type GitHubSourceContext = GitHubIssueContext | GitHubPullRequestContext;

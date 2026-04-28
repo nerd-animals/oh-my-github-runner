@@ -7,7 +7,6 @@ export type InstructionWorkflow = "observe" | "mutate" | "pr_implement";
 export interface InstructionContext {
   includeIssueBody?: boolean;
   includeIssueComments?: boolean;
-  includeLinkedPrs?: boolean;
   includePrBody?: boolean;
   includePrComments?: boolean;
   includePrDiff?: boolean;

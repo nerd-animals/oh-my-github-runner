@@ -1,4 +1,9 @@
-import type { GitHubComment, GitHubSourceContext } from "../github.js";
+import type {
+  GitHubComment,
+  GitHubSourceContext,
+  LinkedRefEntry,
+  LinkedRefs,
+} from "../github.js";
 import type {
   ExecutionMode,
   InstructionDefinition,
@@ -52,6 +57,7 @@ export class ExecutionPromptBuilder {
         this.appendCommentsSection(lines, context.comments);
       }
 
+      this.appendLinkedRefsSection(lines, context.linkedRefs, "issue");
       this.appendAdditionalInstructions(lines, task.additionalInstructions);
       return this.withPreamble(lines.join("\n"));
     }
@@ -69,6 +75,7 @@ export class ExecutionPromptBuilder {
     }
 
     lines.push("", `Base: ${context.baseRef}`, `Head: ${context.headRef}`);
+    this.appendLinkedRefsSection(lines, context.linkedRefs, "pull_request");
     this.appendAdditionalInstructions(lines, task.additionalInstructions);
     return this.withPreamble(lines.join("\n"));
   }
@@ -104,4 +111,40 @@ export class ExecutionPromptBuilder {
         : ["- none"]),
     );
   }
+
+  private appendLinkedRefsSection(
+    lines: string[],
+    linkedRefs: LinkedRefs,
+    sourceKind: "issue" | "pull_request",
+  ): void {
+    const closesHeader =
+      sourceKind === "issue"
+        ? "Linked PRs (closes):"
+        : "Linked Issues (closes):";
+
+    lines.push(
+      "",
+      closesHeader,
+      ...(linkedRefs.closes.length > 0
+        ? linkedRefs.closes.map(formatLinkedRefEntry)
+        : ["- none"]),
+    );
+
+    if (linkedRefs.bodyMentions.length > 0) {
+      lines.push(
+        "",
+        "Referenced (body mentions):",
+        ...linkedRefs.bodyMentions.map(formatLinkedRefEntry),
+      );
+    }
+  }
+}
+
+function formatLinkedRefEntry(entry: LinkedRefEntry): string {
+  const stateLabel =
+    entry.kind === "pull_request" && entry.merged === true
+      ? "merged"
+      : entry.state;
+  const kindLabel = entry.kind === "pull_request" ? "pr" : "issue";
+  return `- ${kindLabel} #${entry.number} (${stateLabel}) — ${entry.title}`;
 }

@@ -42,9 +42,6 @@ function mapContext(context: Record<string, boolean> | undefined): InstructionCo
     ...(context?.include_issue_comments !== undefined
       ? { includeIssueComments: context.include_issue_comments }
       : {}),
-    ...(context?.include_linked_prs !== undefined
-      ? { includeLinkedPrs: context.include_linked_prs }
-      : {}),
     ...(context?.include_pr_body !== undefined
       ? { includePrBody: context.include_pr_body }
       : {}),
