@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import type { TaskRecord } from "../../src/domain/task.js";
 import { FileInstructionLoader } from "../../src/infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "../../src/infra/queue/file-queue-store.js";
 import { DeliveryDedupCache } from "../../src/infra/webhook/delivery-dedup.js";
@@ -80,10 +79,7 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       assert.equal(result.status, 200);
       assert.equal(result.body, "enqueue");
 
-      const tasksFile = join(queueDir, "tasks.json");
-      const raw = await readFile(tasksFile, "utf8");
-      const tasks = JSON.parse(raw) as TaskRecord[];
-
+      const tasks = await queueStore.listTasks();
       assert.equal(tasks.length, 1);
       const task = tasks[0]!;
       assert.equal(task.instructionId, "issue-initial-review");
@@ -95,6 +91,10 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       });
       assert.deepEqual(task.source, { kind: "issue", number: 42 });
       assert.equal(task.requestedBy, "alice");
+
+      // Status is encoded by directory placement under var/queue/.
+      const queuedDir = await readdir(join(queueDir, "queued"));
+      assert.deepEqual(queuedDir, [`${task.taskId}.json`]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
