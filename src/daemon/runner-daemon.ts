@@ -18,6 +18,8 @@ export interface RunnerDaemonDependencies {
   rateLimitCooldownMs?: number;
   registeredAgents?: readonly string[];
   idleWarningIntervalMs?: number;
+  retentionMs?: number;
+  pruneIntervalMs?: number;
   now?: () => number;
   warn?: (message: string) => void;
   notifyTaskFailure?: (
@@ -30,20 +32,28 @@ export interface RunnerDaemonDependencies {
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
 const DEFAULT_IDLE_WARNING_INTERVAL_MS = 60 * 1000;
+const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export class RunnerDaemon {
   private readonly activeTasks = new Map<string, Promise<void>>();
   private readonly rateLimitCooldownMs: number;
   private readonly idleWarningIntervalMs: number;
+  private readonly retentionMs: number;
+  private readonly pruneIntervalMs: number;
   private readonly now: () => number;
   private readonly warn: (message: string) => void;
   private lastIdleWarningAt = 0;
+  private lastPruneAt = 0;
 
   constructor(private readonly dependencies: RunnerDaemonDependencies) {
     this.rateLimitCooldownMs =
       dependencies.rateLimitCooldownMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
     this.idleWarningIntervalMs =
       dependencies.idleWarningIntervalMs ?? DEFAULT_IDLE_WARNING_INTERVAL_MS;
+    this.retentionMs = dependencies.retentionMs ?? DEFAULT_RETENTION_MS;
+    this.pruneIntervalMs =
+      dependencies.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
     this.now = dependencies.now ?? (() => Date.now());
     this.warn = dependencies.warn ?? ((message) => console.warn(message));
   }
@@ -53,9 +63,11 @@ export class RunnerDaemon {
       "daemon interrupted before completion",
     );
     await this.dependencies.logStore.cleanupExpired();
+    await this.maybePrune(true);
   }
 
   async tick(): Promise<void> {
+    await this.maybePrune(false);
     const tasks = await this.dependencies.queueStore.listTasks();
     const instructionsById = await this.loadInstructions(tasks);
     const pausedAgents = await this.loadPausedAgents();
@@ -112,6 +124,30 @@ export class RunnerDaemon {
     }
 
     await this.waitForIdle();
+  }
+
+  private async maybePrune(force: boolean): Promise<void> {
+    const now = this.now();
+    if (!force && now - this.lastPruneAt < this.pruneIntervalMs) {
+      return;
+    }
+    this.lastPruneAt = now;
+    try {
+      const cutoff = new Date(now - this.retentionMs);
+      const pruned =
+        await this.dependencies.queueStore.pruneTerminalTasks(cutoff);
+      if (pruned > 0) {
+        console.log(
+          `[daemon] pruned ${pruned} terminal task file(s) older than ${cutoff.toISOString()}`,
+        );
+      }
+    } catch (error) {
+      this.warn(
+        `[daemon] pruneTerminalTasks threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private async loadPausedAgents(): Promise<ReadonlySet<string>> {

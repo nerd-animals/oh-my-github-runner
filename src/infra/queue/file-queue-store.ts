@@ -1,8 +1,20 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  stat,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { hasSameSource, type QueueTaskInput } from "../../domain/queue-task.js";
 import type { TaskRecord } from "../../domain/task.js";
-import type { CompleteTaskInput, QueueStore } from "../../domain/ports/queue-store.js";
+import { TASK_STATUSES, type TaskStatus } from "../../domain/task-status.js";
+import type {
+  CompleteTaskInput,
+  QueueStore,
+} from "../../domain/ports/queue-store.js";
 
 export interface FileQueueStoreOptions {
   dataDir: string;
@@ -12,19 +24,25 @@ export function createTaskId(): string {
   return `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+const TERMINAL_STATUSES = ["succeeded", "failed", "superseded"] as const;
+
 export class FileQueueStore implements QueueStore {
-  private readonly tasksFilePath: string;
+  private readonly dataDir: string;
+  private readonly legacyTasksFilePath: string;
+  private migrationPromise: Promise<void> | null = null;
 
   constructor(options: FileQueueStoreOptions) {
-    this.tasksFilePath = path.join(options.dataDir, "tasks.json");
+    this.dataDir = options.dataDir;
+    this.legacyTasksFilePath = path.join(this.dataDir, "tasks.json");
   }
 
   async enqueue(input: QueueTaskInput): Promise<TaskRecord> {
-    const tasks = await this.readTasks();
+    await this.ensureMigrated();
 
-    for (const task of tasks) {
-      if (task.status === "queued" && hasSameSource(task, input)) {
-        task.status = "superseded";
+    for (const existing of await this.listInStatus("queued")) {
+      if (hasSameSource(existing, input)) {
+        existing.status = "superseded";
+        await this.relocate(existing, "queued");
       }
     }
 
@@ -47,27 +65,36 @@ export class FileQueueStore implements QueueStore {
         : {}),
     };
 
-    tasks.push(newTask);
-    await this.writeTasks(tasks);
-
+    await this.writeTaskFile(newTask);
     return newTask;
   }
 
-  listTasks(): Promise<TaskRecord[]> {
-    return this.readTasks();
+  async listTasks(): Promise<TaskRecord[]> {
+    await this.ensureMigrated();
+    const all: TaskRecord[] = [];
+    for (const status of TASK_STATUSES) {
+      all.push(...(await this.listInStatus(status)));
+    }
+    return all;
   }
 
   async getTask(taskId: string): Promise<TaskRecord | undefined> {
-    const tasks = await this.readTasks();
-    return tasks.find((task) => task.taskId === taskId);
+    await this.ensureMigrated();
+    for (const status of TASK_STATUSES) {
+      const record = await this.tryReadTaskFile(status, taskId);
+      if (record !== undefined) {
+        return record;
+      }
+    }
+    return undefined;
   }
 
   async startTask(
     taskId: string,
     instructionRevision: number,
   ): Promise<TaskRecord> {
-    const tasks = await this.readTasks();
-    const task = this.requireTask(tasks, taskId);
+    await this.ensureMigrated();
+    const task = await this.requireFromStatus("queued", taskId);
 
     task.status = "running";
     task.instructionRevision = instructionRevision;
@@ -75,7 +102,7 @@ export class FileQueueStore implements QueueStore {
     delete task.finishedAt;
     delete task.errorSummary;
 
-    await this.writeTasks(tasks);
+    await this.relocate(task, "queued");
     return task;
   }
 
@@ -83,8 +110,8 @@ export class FileQueueStore implements QueueStore {
     taskId: string,
     input: CompleteTaskInput,
   ): Promise<TaskRecord> {
-    const tasks = await this.readTasks();
-    const task = this.requireTask(tasks, taskId);
+    await this.ensureMigrated();
+    const task = await this.requireFromStatus("running", taskId);
 
     task.status = input.status;
     task.finishedAt = new Date().toISOString();
@@ -95,13 +122,13 @@ export class FileQueueStore implements QueueStore {
       delete task.errorSummary;
     }
 
-    await this.writeTasks(tasks);
+    await this.relocate(task, "running");
     return task;
   }
 
   async revertToQueued(taskId: string): Promise<TaskRecord> {
-    const tasks = await this.readTasks();
-    const task = this.requireTask(tasks, taskId);
+    await this.ensureMigrated();
+    const task = await this.requireFromStatus("running", taskId);
 
     task.status = "queued";
     delete task.startedAt;
@@ -109,73 +136,197 @@ export class FileQueueStore implements QueueStore {
     delete task.errorSummary;
     delete task.instructionRevision;
 
-    await this.writeTasks(tasks);
+    await this.relocate(task, "running");
     return task;
   }
 
   async recoverRunningTasks(errorSummary: string): Promise<void> {
-    const tasks = await this.readTasks();
-    let changed = false;
-
-    for (const task of tasks) {
-      if (task.status !== "running") {
-        continue;
-      }
-
+    await this.ensureMigrated();
+    for (const task of await this.listInStatus("running")) {
       task.status = "failed";
       task.finishedAt = new Date().toISOString();
       task.errorSummary = errorSummary;
-      changed = true;
-    }
-
-    if (changed) {
-      await this.writeTasks(tasks);
+      await this.relocate(task, "running");
     }
   }
 
-  private requireTask(tasks: TaskRecord[], taskId: string): TaskRecord {
-    const task = tasks.find((candidate) => candidate.taskId === taskId);
-
-    if (task === undefined) {
-      throw new Error(`Task not found: ${taskId}`);
-    }
-
-    return task;
-  }
-
-  private async readTasks(): Promise<TaskRecord[]> {
-    try {
-      const raw = await readFile(this.tasksFilePath, "utf8");
-      const tasks = JSON.parse(raw) as TaskRecord[];
-
-      for (const task of tasks) {
-        if (typeof task.agent !== "string" || task.agent.length === 0) {
-          task.agent = "claude";
+  async pruneTerminalTasks(olderThan: Date): Promise<number> {
+    await this.ensureMigrated();
+    const cutoffMs = olderThan.getTime();
+    let pruned = 0;
+    for (const status of TERMINAL_STATUSES) {
+      const dir = this.statusDir(status);
+      let entries: string[];
+      try {
+        entries = await readdir(dir);
+      } catch (error) {
+        if (isMissingFile(error)) {
+          continue;
+        }
+        throw error;
+      }
+      for (const entry of entries) {
+        if (!entry.endsWith(".json")) {
+          continue;
+        }
+        const filePath = path.join(dir, entry);
+        try {
+          const stats = await stat(filePath);
+          if (stats.mtimeMs <= cutoffMs) {
+            await unlink(filePath);
+            pruned += 1;
+          }
+        } catch (error) {
+          if (!isMissingFile(error)) {
+            throw error;
+          }
         }
       }
+    }
+    return pruned;
+  }
 
-      return tasks;
+  private statusDir(status: TaskStatus): string {
+    return path.join(this.dataDir, status);
+  }
+
+  private taskPath(status: TaskStatus, taskId: string): string {
+    return path.join(this.statusDir(status), `${taskId}.json`);
+  }
+
+  // Used for new records (enqueue) where there is no fromPath to move from.
+  private async writeTaskFile(task: TaskRecord): Promise<void> {
+    const target = this.taskPath(task.status, task.taskId);
+    const tmp = `${target}.tmp`;
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(tmp, JSON.stringify(task, null, 2), "utf8");
+    await rename(tmp, target);
+  }
+
+  // Two-step atomic transition:
+  //   1. Rewrite the old path in place (temp + rename → fromPath). This
+  //      refreshes the inode + mtime to "now," so subsequent prune sweeps
+  //      that key off mtime see the most recent transition rather than
+  //      createdAt.
+  //   2. Cross-directory `rename(fromPath, toPath)`. POSIX rename is
+  //      atomic within the same filesystem, so the file exists at exactly
+  //      one location at any observable moment.
+  // If a SIGKILL splits the two steps, the file is still at fromPath with
+  // the new content — startup recovery sees a self-consistent record.
+  private async relocate(
+    task: TaskRecord,
+    fromStatus: TaskStatus,
+  ): Promise<void> {
+    const fromPath = this.taskPath(fromStatus, task.taskId);
+    const toPath = this.taskPath(task.status, task.taskId);
+
+    const fromTmp = `${fromPath}.tmp`;
+    await mkdir(path.dirname(fromPath), { recursive: true });
+    await writeFile(fromTmp, JSON.stringify(task, null, 2), "utf8");
+    await rename(fromTmp, fromPath);
+
+    if (fromPath === toPath) {
+      return;
+    }
+
+    await mkdir(path.dirname(toPath), { recursive: true });
+    await rename(fromPath, toPath);
+  }
+
+  private async listInStatus(status: TaskStatus): Promise<TaskRecord[]> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.statusDir(status));
     } catch (error) {
-      const isMissingFile =
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "ENOENT";
-
-      if (isMissingFile) {
+      if (isMissingFile(error)) {
         return [];
       }
+      throw error;
+    }
+    const records: TaskRecord[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) {
+        continue;
+      }
+      const taskId = entry.slice(0, -".json".length);
+      const record = await this.tryReadTaskFile(status, taskId);
+      if (record !== undefined) {
+        records.push(record);
+      }
+    }
+    // FIFO: readdir order is filesystem-dependent (ext4 hash, btrfs inode,
+    // ...), so sort explicitly by the schema field that means "when the
+    // task entered the queue."
+    records.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return records;
+  }
 
+  private async tryReadTaskFile(
+    status: TaskStatus,
+    taskId: string,
+  ): Promise<TaskRecord | undefined> {
+    try {
+      const raw = await readFile(this.taskPath(status, taskId), "utf8");
+      const task = JSON.parse(raw) as TaskRecord;
+      if (typeof task.agent !== "string" || task.agent.length === 0) {
+        task.agent = "claude";
+      }
+      return task;
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return undefined;
+      }
       throw error;
     }
   }
 
-  private async writeTasks(tasks: TaskRecord[]): Promise<void> {
-    const dirPath = path.dirname(this.tasksFilePath);
-    const tempFilePath = `${this.tasksFilePath}.tmp`;
-
-    await mkdir(dirPath, { recursive: true });
-    await writeFile(tempFilePath, JSON.stringify(tasks, null, 2), "utf8");
-    await rename(tempFilePath, this.tasksFilePath);
+  private async requireFromStatus(
+    status: TaskStatus,
+    taskId: string,
+  ): Promise<TaskRecord> {
+    const task = await this.tryReadTaskFile(status, taskId);
+    if (task === undefined) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+    return task;
   }
+
+  private async ensureMigrated(): Promise<void> {
+    if (this.migrationPromise === null) {
+      this.migrationPromise = this.runMigration();
+    }
+    return this.migrationPromise;
+  }
+
+  private async runMigration(): Promise<void> {
+    let raw: string;
+    try {
+      raw = await readFile(this.legacyTasksFilePath, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return;
+      }
+      throw error;
+    }
+    const tasks = JSON.parse(raw) as TaskRecord[];
+    for (const task of tasks) {
+      if (typeof task.agent !== "string" || task.agent.length === 0) {
+        task.agent = "claude";
+      }
+      await this.writeTaskFile(task);
+    }
+    await rename(
+      this.legacyTasksFilePath,
+      `${this.legacyTasksFilePath}.migrated`,
+    );
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }

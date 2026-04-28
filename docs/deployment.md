@@ -90,7 +90,16 @@ the following are missing:
 
 ## State files
 
-- `var/queue/tasks.json` — durable queue of tasks
+- `var/queue/<status>/<taskId>.json` — one file per task. Status is encoded
+  by directory: `queued/`, `running/`, `succeeded/`, `failed/`,
+  `superseded/`. Transitions are atomic cross-directory `rename(2)` calls,
+  so a task lives in exactly one directory at any observable moment.
+  `succeeded/`, `failed/`, `superseded/` are pruned by mtime; the daemon
+  runs a sweep on boot and every 24h, retaining files for
+  `RUNNER_QUEUE_RETENTION_DAYS` (default 7).
+- `var/queue/tasks.json.migrated` — only present after a one-time migration
+  from the previous single-file layout. Kept on disk as a debug artefact
+  and never read again.
 - `var/queue/state.json` — per-agent rate-limit `pausedUntil`; deleting this
   file is the manual override to resume queued work immediately
 - `var/repos/<owner>/<name>/mirror.git` — bare mirror per repo (cached
@@ -191,8 +200,10 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   no longer trips this path; `recoverRunningTasks` is reserved for actual
   crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
-- Deploy waits for `status=="running"` tasks to drain before resetting and
-  restarting (polling every 5s, override via `RUNNER_DEPLOY_POLL_SEC`).
+- Deploy waits for running tasks to drain before resetting and restarting
+  (polling every 5s, override via `RUNNER_DEPLOY_POLL_SEC`). It counts both
+  legacy `tasks.json` (`status=="running"`) and the new
+  `var/queue/running/*.json` so it stays correct across the migration cycle.
   The wait has no internal timeout — the GitHub Actions workflow
   `timeout-minutes` (15) is the only outer bound; if the wait exceeds it,
   the SSH session is killed and the next push retries. `queued` tasks are
@@ -200,6 +211,9 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   Bumping an instruction `revision` in `definitions/instructions/*.yaml`
   follows the same flow: in-flight tasks finish on the old revision, new
   tasks pick up the new one.
+- Tweak retention for terminal tasks with `RUNNER_QUEUE_RETENTION_DAYS`
+  (default 7). Files under `var/queue/{succeeded,failed,superseded}/` older
+  than the cutoff are removed by the daemon at boot and every 24h.
 
 ## Recommended GitHub setup (not enforced by code)
 

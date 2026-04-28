@@ -50,6 +50,7 @@ describe("EnqueueService", () => {
           throw new Error("should not be called");
         },
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
     });
 
@@ -94,6 +95,7 @@ describe("EnqueueService", () => {
           throw new Error("should not be called");
         },
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
     });
 

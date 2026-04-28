@@ -91,6 +91,12 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     60 *
     60 *
     1000;
+  const queueRetentionMs =
+    parsePositiveInt(process.env.RUNNER_QUEUE_RETENTION_DAYS, 7) *
+    24 *
+    60 *
+    60 *
+    1000;
   const webhookPort = parsePositiveInt(process.env.WEBHOOK_PORT, 8080);
   const webhookHost = process.env.WEBHOOK_HOST ?? "127.0.0.1";
 
@@ -180,6 +186,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     pollIntervalMs,
     rateLimitStateStore,
     rateLimitCooldownMs,
+    retentionMs: queueRetentionMs,
     registeredAgents: agentConfig.agents,
     notifyTaskFailure: async (task, errorSummary) => {
       const body = renderFailure(task, errorSummary);

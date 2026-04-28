@@ -14,4 +14,5 @@ export interface QueueStore {
   completeTask(taskId: string, input: CompleteTaskInput): Promise<TaskRecord>;
   revertToQueued(taskId: string): Promise<TaskRecord>;
   recoverRunningTasks(errorSummary: string): Promise<void>;
+  pruneTerminalTasks(olderThan: Date): Promise<number>;
 }

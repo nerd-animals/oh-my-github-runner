@@ -80,6 +80,7 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async (message) => {
           calls.push(`recover:${message}`);
         },
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -141,6 +142,7 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -209,6 +211,7 @@ describe("RunnerDaemon", () => {
         },
         revertToQueued: async () => currentTask,
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -260,6 +263,7 @@ describe("RunnerDaemon", () => {
         },
         revertToQueued: async () => currentTask,
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -314,6 +318,7 @@ describe("RunnerDaemon", () => {
         },
         revertToQueued: async () => currentTask,
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -373,6 +378,7 @@ describe("RunnerDaemon", () => {
         },
         revertToQueued: async () => currentTask,
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
@@ -420,6 +426,7 @@ describe("RunnerDaemon", () => {
         },
         revertToQueued: async () => currentTask,
         recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
       },
       instructionLoader: {
         loadById: async () => instruction,
