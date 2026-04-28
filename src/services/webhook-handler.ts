@@ -1,13 +1,23 @@
-import type { RepoRef } from "../domain/task.js";
-import type { GitHubClient } from "../domain/ports/github-client.js";
+import type { RepoRef, StickyCommentRef } from "../domain/task.js";
+import type {
+  GitHubClient,
+  ReactionTarget,
+} from "../domain/ports/github-client.js";
 import type { DeliveryDedupCache } from "../infra/webhook/delivery-dedup.js";
 import { verifyHubSignature } from "../infra/webhook/hmac-verifier.js";
+import { createTaskId } from "../infra/queue/file-queue-store.js";
 import type {
   DispatchAction,
   DispatchedEvent,
   EventDispatcher,
+  TriggerLocation,
 } from "./event-dispatcher.js";
 import type { EnqueueService } from "./enqueue-service.js";
+import {
+  renderQueued,
+  renderRejection,
+  type StickyCommentMeta,
+} from "./sticky-comment.js";
 
 export interface WebhookHandlerDependencies {
   secret: string;
@@ -15,9 +25,14 @@ export interface WebhookHandlerDependencies {
   enqueueService: Pick<EnqueueService, "enqueue">;
   githubClient: Pick<
     GitHubClient,
-    "getPullRequestState" | "postIssueComment" | "postPullRequestComment"
+    | "getPullRequestState"
+    | "postIssueComment"
+    | "postPullRequestComment"
+    | "updateIssueComment"
+    | "addReaction"
   >;
   deliveryDedup: DeliveryDedupCache;
+  generateTaskId?: () => string;
 }
 
 export interface WebhookHandlerResult {
@@ -55,6 +70,7 @@ interface IssueCommentPayload extends WebhookPayloadCommon {
     pull_request?: unknown;
   };
   comment: {
+    id: number;
     body: string;
   };
 }
@@ -71,6 +87,7 @@ interface PullRequestReviewCommentPayload extends WebhookPayloadCommon {
     };
   };
   comment: {
+    id: number;
     body: string;
   };
 }
@@ -220,7 +237,7 @@ export class WebhookHandler {
           kind: "pr_comment",
           repo,
           pr,
-          comment: { body: event.comment.body },
+          comment: { id: event.comment.id, body: event.comment.body },
           sender,
         };
       }
@@ -229,7 +246,7 @@ export class WebhookHandler {
         kind: "issue_comment",
         repo,
         issue: { number: event.issue.number },
-        comment: { body: event.comment.body },
+        comment: { id: event.comment.id, body: event.comment.body },
         sender,
       };
     }
@@ -265,7 +282,7 @@ export class WebhookHandler {
               ? null
               : event.pull_request.head.ref,
         },
-        comment: { body: event.comment.body },
+        comment: { id: event.comment.id, body: event.comment.body },
         sender,
       };
     }
@@ -279,25 +296,123 @@ export class WebhookHandler {
     }
 
     if (action.kind === "reject") {
-      await this.deps.githubClient.postIssueComment(
-        action.comment.repo,
-        action.comment.issueNumber,
-        action.comment.body,
-      );
+      await this.executeReject(action);
       return;
     }
 
-    await this.deps.enqueueService.enqueue({
-      repo: action.repo,
-      source: action.source,
+    await this.executeEnqueue(action);
+  }
+
+  private async executeReject(
+    action: Extract<DispatchAction, { kind: "reject" }>,
+  ): Promise<void> {
+    const body = renderRejection(action.reason, action.comment.body, {
+      requestedBy: action.requestedBy,
+      trigger: action.trigger,
+    });
+
+    await this.tryAddReaction(action.comment.repo, action.trigger, "-1");
+    await this.deps.githubClient.postIssueComment(
+      action.comment.repo,
+      action.comment.issueNumber,
+      body,
+    );
+  }
+
+  private async executeEnqueue(
+    action: Extract<DispatchAction, { kind: "enqueue" }>,
+  ): Promise<void> {
+    const taskId = (this.deps.generateTaskId ?? createTaskId)();
+    const meta: StickyCommentMeta = {
+      taskId,
       instructionId: action.instructionId,
       agent: action.agent,
       requestedBy: action.requestedBy,
-      ...(action.additionalInstructions !== undefined
-        ? { additionalInstructions: action.additionalInstructions }
-        : {}),
-    });
+      trigger: action.trigger,
+    };
+
+    await this.tryAddReaction(action.repo, action.trigger, "eyes");
+
+    let stickyComment: StickyCommentRef | undefined;
+
+    try {
+      const comment = await this.deps.githubClient.postIssueComment(
+        action.repo,
+        action.trigger.issueNumber,
+        renderQueued(meta),
+      );
+      stickyComment = {
+        repo: action.repo,
+        issueNumber: action.trigger.issueNumber,
+        commentId: comment.commentId,
+      };
+    } catch (error) {
+      console.warn(
+        `[webhook] failed to post sticky comment for task=${taskId}: ${describeError(error)}`,
+      );
+    }
+
+    try {
+      await this.deps.enqueueService.enqueue({
+        taskId,
+        repo: action.repo,
+        source: action.source,
+        instructionId: action.instructionId,
+        agent: action.agent,
+        requestedBy: action.requestedBy,
+        ...(stickyComment !== undefined ? { stickyComment } : {}),
+        ...(action.additionalInstructions !== undefined
+          ? { additionalInstructions: action.additionalInstructions }
+          : {}),
+      });
+    } catch (error) {
+      if (stickyComment !== undefined) {
+        const failureBody = [
+          `<!-- omgr:task=${taskId} -->`,
+          `❌ **Task failed to enqueue** — \`${taskId}\``,
+          "",
+          `Error: ${describeError(error)}`,
+        ].join("\n");
+
+        try {
+          await this.deps.githubClient.updateIssueComment(
+            stickyComment.repo,
+            stickyComment.commentId,
+            failureBody,
+          );
+        } catch (editError) {
+          console.warn(
+            `[webhook] failed to edit sticky comment after enqueue failure for task=${taskId}: ${describeError(editError)}`,
+          );
+        }
+      }
+
+      throw error;
+    }
   }
+
+  private async tryAddReaction(
+    repo: RepoRef,
+    trigger: TriggerLocation,
+    content: "eyes" | "-1",
+  ): Promise<void> {
+    const target: ReactionTarget =
+      trigger.kind === "issue"
+        ? { kind: "issue", issueNumber: trigger.issueNumber }
+        : { kind: "comment", commentId: trigger.commentId };
+
+    try {
+      await this.deps.githubClient.addReaction(repo, target, content);
+    } catch (error) {
+      console.warn(
+        `[webhook] failed to add ${content} reaction: ${describeError(error)}`,
+      );
+    }
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function readHeader(headers: Headers, name: string): string | undefined {

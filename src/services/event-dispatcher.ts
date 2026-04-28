@@ -15,6 +15,10 @@ export interface PullRequestState {
   headRef: string | null;
 }
 
+export type TriggerLocation =
+  | { kind: "issue"; issueNumber: number }
+  | { kind: "comment"; issueNumber: number; commentId: number };
+
 export type DispatchedEvent =
   | {
       kind: "issue_opened";
@@ -26,14 +30,14 @@ export type DispatchedEvent =
       kind: "issue_comment";
       repo: RepoRef;
       issue: { number: number };
-      comment: { body: string };
+      comment: { id: number; body: string };
       sender: { id: number; login: string };
     }
   | {
       kind: "pr_comment";
       repo: RepoRef;
       pr: PullRequestState;
-      comment: { body: string };
+      comment: { id: number; body: string };
       sender: { id: number; login: string };
     };
 
@@ -52,9 +56,16 @@ export type DispatchAction =
       source: SourceRef;
       additionalInstructions?: string;
       requestedBy: string;
+      trigger: TriggerLocation;
     }
   | { kind: "ignore"; reason: string }
-  | { kind: "reject"; reason: string; comment: RejectionComment };
+  | {
+      kind: "reject";
+      reason: string;
+      comment: RejectionComment;
+      trigger: TriggerLocation;
+      requestedBy: string;
+    };
 
 export interface EventDispatcherDependencies {
   agentRegistry: Pick<AgentRegistry, "has" | "getDefaultAgent">;
@@ -124,6 +135,7 @@ export class EventDispatcher {
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
+      trigger: { kind: "issue", issueNumber: event.issue.number },
     };
   }
 
@@ -159,6 +171,11 @@ export class EventDispatcher {
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
+      trigger: {
+        kind: "comment",
+        issueNumber: event.issue.number,
+        commentId: event.comment.id,
+      },
       ...(parsed.additionalInstructions.length > 0
         ? { additionalInstructions: parsed.additionalInstructions }
         : {}),
@@ -181,8 +198,18 @@ export class EventDispatcher {
       };
     }
 
+    const trigger: TriggerLocation = {
+      kind: "comment",
+      issueNumber: event.pr.number,
+      commentId: event.comment.id,
+    };
+
     if (parsed.verb === "implement") {
-      const rejection = this.preflightPullRequest(event);
+      const rejection = this.preflightPullRequest(
+        event,
+        trigger,
+        event.sender.login,
+      );
 
       if (rejection !== null) {
         return rejection;
@@ -205,6 +232,7 @@ export class EventDispatcher {
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
       requestedBy: event.sender.login,
+      trigger,
       ...(parsed.additionalInstructions.length > 0
         ? { additionalInstructions: parsed.additionalInstructions }
         : {}),
@@ -213,6 +241,8 @@ export class EventDispatcher {
 
   private preflightPullRequest(
     event: Extract<DispatchedEvent, { kind: "pr_comment" }>,
+    trigger: TriggerLocation,
+    requestedBy: string,
   ): DispatchAction | null {
     if (event.pr.isFork) {
       return {
@@ -223,6 +253,8 @@ export class EventDispatcher {
           issueNumber: event.pr.number,
           body: "Cannot run `/claude implement`: PRs from forks are not supported in v1.",
         },
+        trigger,
+        requestedBy,
       };
     }
 
@@ -235,6 +267,8 @@ export class EventDispatcher {
           issueNumber: event.pr.number,
           body: "Cannot run `/claude implement`: this PR is already merged.",
         },
+        trigger,
+        requestedBy,
       };
     }
 
@@ -247,6 +281,8 @@ export class EventDispatcher {
           issueNumber: event.pr.number,
           body: "Cannot run `/claude implement`: this PR is closed.",
         },
+        trigger,
+        requestedBy,
       };
     }
 
@@ -259,6 +295,8 @@ export class EventDispatcher {
           issueNumber: event.pr.number,
           body: "Cannot run `/claude implement`: head branch has been deleted.",
         },
+        trigger,
+        requestedBy,
       };
     }
 

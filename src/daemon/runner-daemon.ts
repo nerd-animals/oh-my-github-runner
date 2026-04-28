@@ -24,6 +24,8 @@ export interface RunnerDaemonDependencies {
     task: TaskRecord,
     errorSummary: string,
   ) => Promise<void>;
+  notifyTaskSucceeded?: (task: TaskRecord) => Promise<void>;
+  notifyTaskRateLimited?: (task: TaskRecord) => Promise<void>;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -177,6 +179,18 @@ export class RunnerDaemon {
 
     if (result.status === "succeeded") {
       console.log(`[daemon] succeed task=${task.taskId}`);
+
+      if (this.dependencies.notifyTaskSucceeded !== undefined) {
+        try {
+          await this.dependencies.notifyTaskSucceeded(task);
+        } catch (error) {
+          this.warn(
+            `[daemon] notifyTaskSucceeded threw: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     } else {
       console.error(
         `[daemon] fail task=${task.taskId} error=${result.errorSummary}`,
@@ -206,6 +220,18 @@ export class RunnerDaemon {
     agentName: string,
   ): Promise<void> {
     await this.dependencies.queueStore.revertToQueued(task.taskId);
+
+    if (this.dependencies.notifyTaskRateLimited !== undefined) {
+      try {
+        await this.dependencies.notifyTaskRateLimited(task);
+      } catch (error) {
+        this.warn(
+          `[daemon] notifyTaskRateLimited threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
 
     if (this.dependencies.rateLimitStateStore !== undefined) {
       const pausedUntil = this.now() + this.rateLimitCooldownMs;

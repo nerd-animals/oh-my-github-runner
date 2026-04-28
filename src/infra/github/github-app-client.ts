@@ -11,8 +11,11 @@ import type { RepoRef, SourceRef } from "../../domain/task.js";
 import type {
   AppBotInfo,
   GitHubClient,
+  IssueCommentRef,
   IssueLabelsInfo,
   PullRequestStateInfo,
+  ReactionContent,
+  ReactionTarget,
 } from "../../domain/ports/github-client.js";
 import { InstallationTokenCache } from "./installation-token-cache.js";
 
@@ -244,21 +247,76 @@ export class GitHubAppClient implements GitHubClient {
     repo: RepoRef,
     issueNumber: number,
     body: string,
-  ): Promise<void> {
-    await this.installationRequest(
+  ): Promise<IssueCommentRef> {
+    const response = await this.installationRequest<{
+      id: number;
+      body: string | null;
+    }>(
       repo,
       "POST",
       `/repos/${repo.owner}/${repo.name}/issues/${issueNumber}/comments`,
       { body },
     );
+
+    return { commentId: response.id, body: response.body ?? "" };
   }
 
   async postPullRequestComment(
     repo: RepoRef,
     pullRequestNumber: number,
     body: string,
+  ): Promise<IssueCommentRef> {
+    return this.postIssueComment(repo, pullRequestNumber, body);
+  }
+
+  async updateIssueComment(
+    repo: RepoRef,
+    commentId: number,
+    body: string,
   ): Promise<void> {
-    await this.postIssueComment(repo, pullRequestNumber, body);
+    await this.installationRequest(
+      repo,
+      "PATCH",
+      `/repos/${repo.owner}/${repo.name}/issues/comments/${commentId}`,
+      { body },
+    );
+  }
+
+  async addReaction(
+    repo: RepoRef,
+    target: ReactionTarget,
+    content: ReactionContent,
+  ): Promise<void> {
+    const pathname =
+      target.kind === "issue"
+        ? `/repos/${repo.owner}/${repo.name}/issues/${target.issueNumber}/reactions`
+        : `/repos/${repo.owner}/${repo.name}/issues/comments/${target.commentId}/reactions`;
+
+    await this.installationRequest(repo, "POST", pathname, { content });
+  }
+
+  async findCommentByMarker(
+    repo: RepoRef,
+    issueNumber: number,
+    marker: string,
+  ): Promise<IssueCommentRef | null> {
+    const comments = await this.installationRequest<
+      Array<{ id: number; body: string | null }>
+    >(
+      repo,
+      "GET",
+      `/repos/${repo.owner}/${repo.name}/issues/${issueNumber}/comments?per_page=100`,
+    );
+
+    for (const comment of comments) {
+      const body = comment.body ?? "";
+
+      if (body.includes(marker)) {
+        return { commentId: comment.id, body };
+      }
+    }
+
+    return null;
   }
 
   async findOpenPullRequestByBranch(

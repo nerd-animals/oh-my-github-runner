@@ -24,6 +24,25 @@ export interface IssueLabelsInfo {
   labels: string[];
 }
 
+export type ReactionContent =
+  | "+1"
+  | "-1"
+  | "laugh"
+  | "confused"
+  | "heart"
+  | "hooray"
+  | "rocket"
+  | "eyes";
+
+export type ReactionTarget =
+  | { kind: "issue"; issueNumber: number }
+  | { kind: "comment"; commentId: number };
+
+export interface IssueCommentRef {
+  commentId: number;
+  body: string;
+}
+
 export interface GitHubClient {
   getSourceContext(
     repo: RepoRef,
@@ -41,12 +60,31 @@ export interface GitHubClient {
   ): Promise<IssueLabelsInfo>;
   getAppBotInfo(): Promise<AppBotInfo>;
   getInstallationAccessToken(repo: RepoRef): Promise<string>;
-  postIssueComment(repo: RepoRef, issueNumber: number, body: string): Promise<void>;
+  postIssueComment(
+    repo: RepoRef,
+    issueNumber: number,
+    body: string,
+  ): Promise<IssueCommentRef>;
   postPullRequestComment(
     repo: RepoRef,
     pullRequestNumber: number,
     body: string,
+  ): Promise<IssueCommentRef>;
+  updateIssueComment(
+    repo: RepoRef,
+    commentId: number,
+    body: string,
   ): Promise<void>;
+  addReaction(
+    repo: RepoRef,
+    target: ReactionTarget,
+    content: ReactionContent,
+  ): Promise<void>;
+  findCommentByMarker(
+    repo: RepoRef,
+    issueNumber: number,
+    marker: string,
+  ): Promise<IssueCommentRef | null>;
   findOpenPullRequestByBranch(
     repo: RepoRef,
     branchName: string,

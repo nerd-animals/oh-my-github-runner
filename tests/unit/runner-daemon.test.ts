@@ -344,4 +344,105 @@ describe("RunnerDaemon", () => {
       `expected a warning about notifyTaskFailure, got: ${warnings.join(", ")}`,
     );
   });
+
+  test("calls notifyTaskSucceeded when execution succeeds", async () => {
+    const notifiedSucceeded: string[] = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (_taskId, instructionRevision) => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            instructionRevision,
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async (_taskId, input) => {
+          currentTask = {
+            ...currentTask,
+            status: input.status,
+          };
+          return currentTask;
+        },
+        revertToQueued: async () => currentTask,
+        recoverRunningTasks: async () => {},
+      },
+      instructionLoader: {
+        loadById: async () => instruction,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      executionService: {
+        execute: async () => ({ status: "succeeded" }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskSucceeded: async (task) => {
+        notifiedSucceeded.push(task.taskId);
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.deepEqual(notifiedSucceeded, ["task_1"]);
+  });
+
+  test("calls notifyTaskRateLimited before pausing the agent", async () => {
+    const notifiedRateLimited: string[] = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (_taskId, instructionRevision) => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            instructionRevision,
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          throw new Error("completeTask should not run for rate-limited tasks");
+        },
+        revertToQueued: async () => currentTask,
+        recoverRunningTasks: async () => {},
+      },
+      instructionLoader: {
+        loadById: async () => instruction,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      executionService: {
+        execute: async () => ({
+          status: "rate_limited",
+          agentName: "claude",
+        }),
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskRateLimited: async (task) => {
+        notifiedRateLimited.push(task.taskId);
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.deepEqual(notifiedRateLimited, ["task_1"]);
+  });
 });

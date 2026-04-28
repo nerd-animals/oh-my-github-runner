@@ -26,17 +26,28 @@ interface HarnessOptions {
     merged: boolean;
     headRef: string | null;
   }>;
+  generateTaskId?: () => string;
 }
 
 interface Harness {
   handler: WebhookHandler;
   enqueued: QueueTaskInput[];
   postedComments: Array<{ issueNumber: number; body: string }>;
+  updatedComments: Array<{ commentId: number; body: string }>;
+  reactions: Array<{
+    target:
+      | { kind: "issue"; issueNumber: number }
+      | { kind: "comment"; commentId: number };
+    content: string;
+  }>;
 }
 
 function buildHarness(options: HarnessOptions = {}): Harness {
   const enqueued: QueueTaskInput[] = [];
   const postedComments: Array<{ issueNumber: number; body: string }> = [];
+  const updatedComments: Array<{ commentId: number; body: string }> = [];
+  const reactions: Harness["reactions"] = [];
+  let nextCommentId = 1000;
 
   const dispatcher = new EventDispatcher({
     agentRegistry: {
@@ -55,7 +66,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
         enqueued.push(input);
         await options.enqueueImpl?.(input);
         return {
-          taskId: "task_test",
+          taskId: input.taskId ?? "task_test",
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
@@ -64,6 +75,9 @@ function buildHarness(options: HarnessOptions = {}): Harness {
           priority: "normal" as const,
           requestedBy: input.requestedBy,
           createdAt: new Date().toISOString(),
+          ...(input.stickyComment !== undefined
+            ? { stickyComment: input.stickyComment }
+            : {}),
         };
       },
     },
@@ -71,8 +85,19 @@ function buildHarness(options: HarnessOptions = {}): Harness {
       postIssueComment: async (repo, issueNumber, body) => {
         postedComments.push({ issueNumber, body });
         await options.postCommentImpl?.(repo, issueNumber, body);
+        const commentId = nextCommentId++;
+        return { commentId, body };
       },
-      postPullRequestComment: async () => {},
+      postPullRequestComment: async (_repo, _prNumber, body) => {
+        const commentId = nextCommentId++;
+        return { commentId, body };
+      },
+      updateIssueComment: async (_repo, commentId, body) => {
+        updatedComments.push({ commentId, body });
+      },
+      addReaction: async (_repo, target, content) => {
+        reactions.push({ target, content });
+      },
       getPullRequestState:
         options.getPullRequestStateImpl ??
         (async (_repo, number) => ({
@@ -84,9 +109,12 @@ function buildHarness(options: HarnessOptions = {}): Harness {
         })),
     },
     deliveryDedup: new DeliveryDedupCache({ ttlMs: 60_000 }),
+    ...(options.generateTaskId !== undefined
+      ? { generateTaskId: options.generateTaskId }
+      : {}),
   });
 
-  return { handler, enqueued, postedComments };
+  return { handler, enqueued, postedComments, updatedComments, reactions };
 }
 
 function signedHeaders(
@@ -192,7 +220,7 @@ describe("WebhookHandler", () => {
       ...repoBlock,
       action: "created",
       issue: { number: 52, pull_request: {} },
-      comment: { body: "/claude implement" },
+      comment: { id: 555, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     };
     const body = Buffer.from(JSON.stringify(payload));
@@ -231,5 +259,217 @@ describe("WebhookHandler", () => {
     assert.equal(result.status, 200);
     assert.equal(result.body, "ignored");
     assert.equal(harness.enqueued.length, 0);
+  });
+
+  test("posts a sticky comment with the task id and adds 👀 reaction on issues.opened", async () => {
+    const harness = buildHarness({
+      generateTaskId: () => "task_fixed_123",
+    });
+    const payload = {
+      ...repoBlock,
+      action: "opened",
+      issue: { number: 7, labels: [] },
+      sender: { id: 100, login: "alice" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    await harness.handler.handle(
+      body,
+      signedHeaders(body, "issues", "delivery-sticky-1"),
+    );
+
+    assert.equal(harness.postedComments.length, 1);
+    const sticky = harness.postedComments[0]!;
+    assert.equal(sticky.issueNumber, 7);
+    assert.match(sticky.body, /<!-- omgr:task=task_fixed_123 -->/);
+    assert.match(sticky.body, /Task queued/);
+    assert.match(sticky.body, /task_fixed_123/);
+
+    assert.equal(harness.reactions.length, 1);
+    assert.deepEqual(harness.reactions[0]?.target, {
+      kind: "issue",
+      issueNumber: 7,
+    });
+    assert.equal(harness.reactions[0]?.content, "eyes");
+
+    assert.equal(harness.enqueued.length, 1);
+    assert.equal(harness.enqueued[0]?.taskId, "task_fixed_123");
+    assert.equal(harness.enqueued[0]?.stickyComment?.commentId, 1000);
+    assert.equal(harness.enqueued[0]?.stickyComment?.issueNumber, 7);
+  });
+
+  test("posts a sticky comment and reacts to the comment on /claude", async () => {
+    const harness = buildHarness({
+      generateTaskId: () => "task_fixed_456",
+    });
+    const payload = {
+      ...repoBlock,
+      action: "created",
+      issue: { number: 12 },
+      comment: { id: 9001, body: "/claude" },
+      sender: { id: 100, login: "alice" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    await harness.handler.handle(
+      body,
+      signedHeaders(body, "issue_comment", "delivery-sticky-2"),
+    );
+
+    assert.equal(harness.postedComments.length, 1);
+    assert.match(
+      harness.postedComments[0]?.body ?? "",
+      /<!-- omgr:task=task_fixed_456 -->/,
+    );
+
+    assert.equal(harness.reactions.length, 1);
+    assert.deepEqual(harness.reactions[0]?.target, {
+      kind: "comment",
+      commentId: 9001,
+    });
+    assert.equal(harness.reactions[0]?.content, "eyes");
+  });
+
+  test("rejection path uses the sticky-rejection marker and a -1 reaction", async () => {
+    const harness = buildHarness({
+      getPullRequestStateImpl: async (_repo, number) => ({
+        number,
+        isFork: true,
+        state: "open",
+        merged: false,
+        headRef: "feature/x",
+      }),
+    });
+    const payload = {
+      ...repoBlock,
+      action: "created",
+      issue: { number: 52, pull_request: {} },
+      comment: { id: 7777, body: "/claude implement" },
+      sender: { id: 100, login: "alice" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    await harness.handler.handle(
+      body,
+      signedHeaders(body, "issue_comment", "delivery-reject-sticky"),
+    );
+
+    assert.equal(harness.enqueued.length, 0);
+    assert.equal(harness.postedComments.length, 1);
+    assert.match(
+      harness.postedComments[0]?.body ?? "",
+      /<!-- omgr:rejected -->/,
+    );
+    assert.match(harness.postedComments[0]?.body ?? "", /Trigger rejected/);
+    assert.match(
+      harness.postedComments[0]?.body ?? "",
+      /forks are not supported/,
+    );
+
+    assert.equal(harness.reactions.length, 1);
+    assert.deepEqual(harness.reactions[0]?.target, {
+      kind: "comment",
+      commentId: 7777,
+    });
+    assert.equal(harness.reactions[0]?.content, "-1");
+  });
+
+  test("enqueue still proceeds when reaction API throws", async () => {
+    const enqueued: QueueTaskInput[] = [];
+    const dispatcher = new EventDispatcher({
+      agentRegistry: {
+        has: (name: string) => name === "claude",
+        getDefaultAgent: () => "claude",
+      },
+      botUserId,
+      allowedSenderIds: new Set([100]),
+    });
+
+    const handler = new WebhookHandler({
+      secret,
+      dispatcher,
+      enqueueService: {
+        enqueue: async (input) => {
+          enqueued.push(input);
+          return {
+            taskId: input.taskId ?? "task_test",
+            repo: input.repo,
+            source: input.source,
+            instructionId: input.instructionId,
+            agent: input.agent,
+            status: "queued" as const,
+            priority: "normal" as const,
+            requestedBy: input.requestedBy,
+            createdAt: new Date().toISOString(),
+          };
+        },
+      },
+      githubClient: {
+        postIssueComment: async () => ({ commentId: 1, body: "" }),
+        postPullRequestComment: async () => ({ commentId: 1, body: "" }),
+        updateIssueComment: async () => {},
+        addReaction: async () => {
+          throw new Error("reactions API failure");
+        },
+        getPullRequestState: async (_repo, number) => ({
+          number,
+          isFork: false,
+          state: "open" as const,
+          merged: false,
+          headRef: "feature/x",
+        }),
+      },
+      deliveryDedup: new DeliveryDedupCache({ ttlMs: 60_000 }),
+    });
+
+    const payload = {
+      ...repoBlock,
+      action: "opened",
+      issue: { number: 11, labels: [] },
+      sender: { id: 100, login: "alice" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const result = await handler.handle(
+      body,
+      signedHeaders(body, "issues", "delivery-degraded"),
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(enqueued.length, 1);
+  });
+
+  test("when enqueue throws, sticky comment is edited to reflect failure", async () => {
+    const harness = buildHarness({
+      generateTaskId: () => "task_fail_enqueue",
+      enqueueImpl: () => {
+        throw new Error("queue write failure");
+      },
+    });
+    const payload = {
+      ...repoBlock,
+      action: "opened",
+      issue: { number: 13, labels: [] },
+      sender: { id: 100, login: "alice" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    await assert.rejects(
+      harness.handler.handle(
+        body,
+        signedHeaders(body, "issues", "delivery-fail-enqueue"),
+      ),
+      /queue write failure/,
+    );
+
+    assert.equal(harness.postedComments.length, 1);
+    assert.equal(harness.updatedComments.length, 1);
+    assert.match(
+      harness.updatedComments[0]?.body ?? "",
+      /failed to enqueue/i,
+    );
+    assert.match(
+      harness.updatedComments[0]?.body ?? "",
+      /task_fail_enqueue/,
+    );
   });
 });
