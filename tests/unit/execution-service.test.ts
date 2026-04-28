@@ -72,11 +72,14 @@ const prImplementInstruction: InstructionDefinition = {
   execution: { timeoutSec: 3600 },
 };
 
+const emptyLinkedRefs = { closes: [], bodyMentions: [] };
+
 const issueContext: GitHubSourceContext = {
   kind: "issue",
   title: "Issue title",
   body: "Issue body",
   comments: [{ author: "alice", body: "Please fix this" }],
+  linkedRefs: emptyLinkedRefs,
 };
 
 const pullRequestContext: GitHubSourceContext = {
@@ -87,6 +90,7 @@ const pullRequestContext: GitHubSourceContext = {
   diff: "diff --git a/file.ts b/file.ts",
   baseRef: "main",
   headRef: "feature/pr-52",
+  linkedRefs: emptyLinkedRefs,
 };
 
 function createTask(

@@ -5,6 +5,10 @@ import type {
   GitHubComment,
   GitHubPullRequestSummary,
   GitHubSourceContext,
+  LinkedRefEntry,
+  LinkedRefKind,
+  LinkedRefState,
+  LinkedRefs,
 } from "../../domain/github.js";
 import type { InstructionContext } from "../../domain/instruction.js";
 import type { RepoRef, SourceRef } from "../../domain/task.js";
@@ -17,6 +21,7 @@ import type {
   ReactionContent,
   ReactionTarget,
 } from "../../domain/ports/github-client.js";
+import { parseBodyMentions } from "../../domain/rules/body-mentions.js";
 import { InstallationTokenCache } from "./installation-token-cache.js";
 
 export interface GitHubAppClientOptions {
@@ -112,6 +117,7 @@ export class GitHubAppClient implements GitHubClient {
               `/repos/${repo.owner}/${repo.name}/issues/${source.number}/comments`,
             )
           : [];
+      const linkedRefs = await this.fetchLinkedRefs(repo, source, issue.body ?? "");
 
       return {
         kind: "issue",
@@ -119,6 +125,7 @@ export class GitHubAppClient implements GitHubClient {
         body:
           instructionContext.includeIssueBody === true ? (issue.body ?? "") : "",
         comments: comments.map(this.mapComment),
+        linkedRefs,
       };
     }
 
@@ -144,6 +151,11 @@ export class GitHubAppClient implements GitHubClient {
             "application/vnd.github.v3.diff",
           )
         : "";
+    const linkedRefs = await this.fetchLinkedRefs(
+      repo,
+      source,
+      pullRequest.body ?? "",
+    );
 
     return {
       kind: "pull_request",
@@ -156,6 +168,7 @@ export class GitHubAppClient implements GitHubClient {
       diff,
       baseRef: pullRequest.base.ref,
       headRef: pullRequest.head.ref,
+      linkedRefs,
     };
   }
 
@@ -386,6 +399,73 @@ export class GitHubAppClient implements GitHubClient {
     };
   }
 
+  private async fetchLinkedRefs(
+    repo: RepoRef,
+    source: SourceRef,
+    rawBody: string,
+  ): Promise<LinkedRefs> {
+    const mentionNumbers = parseBodyMentions(rawBody, source.number);
+    const ownerRepo = `${repo.owner}/${repo.name}`;
+
+    try {
+      const response = await this.installationGraphQL<LinkedRefsGraphQLResponse>(
+        repo,
+        buildLinkedRefsQuery(source.kind, mentionNumbers),
+        {
+          owner: repo.owner,
+          name: repo.name,
+          number: source.number,
+        },
+      );
+
+      return mapLinkedRefsResponse(response, source.kind, mentionNumbers, ownerRepo);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `linked refs fetch failed for ${source.kind}#${source.number}: ${message}`,
+      );
+      return { closes: [], bodyMentions: [] };
+    }
+  }
+
+  private async installationGraphQL<T>(
+    repo: RepoRef,
+    query: string,
+    variables: Record<string, unknown>,
+  ): Promise<T> {
+    const token = await this.getInstallationToken(repo);
+    const response = await fetch(`${this.apiBaseUrl}/graphql`, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": "oh-my-github-runner",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub graphql request failed: ${response.status}`);
+    }
+
+    const payload = (await response.json()) as {
+      data?: T;
+      errors?: Array<{ message: string }>;
+    };
+
+    if (payload.errors !== undefined && payload.errors.length > 0) {
+      const reason = payload.errors.map((e) => e.message).join("; ");
+      throw new Error(`GitHub graphql errors: ${reason}`);
+    }
+
+    if (payload.data === undefined) {
+      throw new Error("GitHub graphql response missing data");
+    }
+
+    return payload.data;
+  }
+
   private async installationRequest<T>(
     repo: RepoRef,
     method: string,
@@ -530,4 +610,154 @@ export class GitHubAppClient implements GitHubClient {
       body: comment.body ?? "",
     };
   }
+}
+
+interface LinkedRefsGraphQLNode {
+  __typename: "Issue" | "PullRequest";
+  number: number;
+  title: string;
+  state: string;
+  merged?: boolean;
+  repository: { nameWithOwner: string };
+}
+
+interface LinkedRefsGraphQLResponse {
+  repository: ({
+    issue?: {
+      closedByPullRequestsReferences: { nodes: LinkedRefsGraphQLNode[] };
+    } | null;
+    pullRequest?: {
+      closingIssuesReferences: { nodes: LinkedRefsGraphQLNode[] };
+    } | null;
+  } & Record<string, LinkedRefsGraphQLNode | null | unknown>) | null;
+}
+
+const CLOSES_FIELDS = `
+  __typename
+  number
+  title
+  state
+  repository { nameWithOwner }
+`;
+
+const ALIAS_FRAGMENTS = `
+  __typename
+  ... on Issue {
+    number
+    title
+    state
+    repository { nameWithOwner }
+  }
+  ... on PullRequest {
+    number
+    title
+    state
+    merged
+    repository { nameWithOwner }
+  }
+`;
+
+function buildLinkedRefsQuery(
+  sourceKind: "issue" | "pull_request",
+  mentionNumbers: number[],
+): string {
+  const closesBlock =
+    sourceKind === "issue"
+      ? `issue(number: $number) {
+           closedByPullRequestsReferences(first: 50, includeClosedPrs: true) {
+             nodes {
+               ${CLOSES_FIELDS}
+               merged
+             }
+           }
+         }`
+      : `pullRequest(number: $number) {
+           closingIssuesReferences(first: 50) {
+             nodes { ${CLOSES_FIELDS} }
+           }
+         }`;
+
+  const aliasBlock = mentionNumbers
+    .map(
+      (number, index) =>
+        `m${index}: issueOrPullRequest(number: ${number}) { ${ALIAS_FRAGMENTS} }`,
+    )
+    .join("\n");
+
+  return `
+    query LinkedRefs($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        ${closesBlock}
+        ${aliasBlock}
+      }
+    }
+  `;
+}
+
+function mapLinkedRefsResponse(
+  response: LinkedRefsGraphQLResponse,
+  sourceKind: "issue" | "pull_request",
+  mentionNumbers: number[],
+  ownerRepo: string,
+): LinkedRefs {
+  const repository = response.repository;
+
+  if (repository === null || repository === undefined) {
+    return { closes: [], bodyMentions: [] };
+  }
+
+  const closesNodes =
+    sourceKind === "issue"
+      ? (repository.issue?.closedByPullRequestsReferences.nodes ?? [])
+      : (repository.pullRequest?.closingIssuesReferences.nodes ?? []);
+
+  const closes: LinkedRefEntry[] = [];
+  for (const node of closesNodes) {
+    if (node.repository.nameWithOwner !== ownerRepo) {
+      continue;
+    }
+    closes.push(toLinkedRefEntry(node));
+  }
+
+  const closesNumbers = new Set(closes.map((entry) => entry.number));
+  const bodyMentions: LinkedRefEntry[] = [];
+  for (let index = 0; index < mentionNumbers.length; index += 1) {
+    const number = mentionNumbers[index];
+    if (number === undefined || closesNumbers.has(number)) {
+      continue;
+    }
+    const aliasValue = (repository as Record<string, unknown>)[`m${index}`];
+    if (aliasValue === null || aliasValue === undefined) {
+      continue;
+    }
+    const node = aliasValue as LinkedRefsGraphQLNode;
+    if (node.repository.nameWithOwner !== ownerRepo) {
+      continue;
+    }
+    bodyMentions.push(toLinkedRefEntry(node));
+  }
+
+  return { closes, bodyMentions };
+}
+
+function toLinkedRefEntry(node: LinkedRefsGraphQLNode): LinkedRefEntry {
+  const kind: LinkedRefKind =
+    node.__typename === "PullRequest" ? "pull_request" : "issue";
+  const merged = node.__typename === "PullRequest" && node.merged === true;
+  const state: LinkedRefState =
+    node.__typename === "PullRequest"
+      ? merged || node.state.toUpperCase() === "MERGED" || node.state.toUpperCase() === "CLOSED"
+        ? "closed"
+        : "open"
+      : node.state.toUpperCase() === "OPEN"
+        ? "open"
+        : "closed";
+
+  return {
+    kind,
+    number: node.number,
+    title: node.title,
+    state,
+    ...(kind === "pull_request" ? { merged } : {}),
+  };
 }

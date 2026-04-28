@@ -12,7 +12,6 @@ const issueImplementInstruction: InstructionDefinition = {
   context: {
     includeIssueBody: true,
     includeIssueComments: true,
-    includeLinkedPrs: true,
   },
   permissions: {
     codeRead: true,

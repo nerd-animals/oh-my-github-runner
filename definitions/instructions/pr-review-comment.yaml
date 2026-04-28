@@ -1,5 +1,5 @@
 id: pr-review-comment
-revision: 2
+revision: 3
 source_kind: pull_request
 mode: observe
 workflow: observe
