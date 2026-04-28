@@ -8,6 +8,10 @@ export interface FileQueueStoreOptions {
   dataDir: string;
 }
 
+export function createTaskId(): string {
+  return `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export class FileQueueStore implements QueueStore {
   private readonly tasksFilePath: string;
 
@@ -25,7 +29,7 @@ export class FileQueueStore implements QueueStore {
     }
 
     const newTask: TaskRecord = {
-      taskId: this.createTaskId(),
+      taskId: input.taskId ?? createTaskId(),
       repo: input.repo,
       source: input.source,
       instructionId: input.instructionId,
@@ -38,6 +42,9 @@ export class FileQueueStore implements QueueStore {
       priority: input.priority ?? "normal",
       requestedBy: input.requestedBy,
       createdAt: new Date().toISOString(),
+      ...(input.stickyComment !== undefined
+        ? { stickyComment: input.stickyComment }
+        : {}),
     };
 
     tasks.push(newTask);
@@ -124,10 +131,6 @@ export class FileQueueStore implements QueueStore {
     if (changed) {
       await this.writeTasks(tasks);
     }
-  }
-
-  private createTaskId(): string {
-    return `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   }
 
   private requireTask(tasks: TaskRecord[], taskId: string): TaskRecord {

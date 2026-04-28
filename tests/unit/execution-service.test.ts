@@ -159,10 +159,19 @@ function buildFixture(options: BuildOptions = {}): Fixture {
     getInstallationAccessToken: async () => installationToken,
     postIssueComment: async (...args) => {
       forbiddenCalls.push({ method: "postIssueComment", args });
+      return { commentId: 0, body: "" };
     },
     postPullRequestComment: async (...args) => {
       forbiddenCalls.push({ method: "postPullRequestComment", args });
+      return { commentId: 0, body: "" };
     },
+    updateIssueComment: async (...args) => {
+      forbiddenCalls.push({ method: "updateIssueComment", args });
+    },
+    addReaction: async (...args) => {
+      forbiddenCalls.push({ method: "addReaction", args });
+    },
+    findCommentByMarker: async () => null,
     findOpenPullRequestByBranch: async () => null,
     createPullRequest: async (input) => {
       forbiddenCalls.push({ method: "createPullRequest", args: [input] });

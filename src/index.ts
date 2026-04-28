@@ -24,6 +24,12 @@ import {
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
+import {
+  renderFailure,
+  renderRateLimited,
+  renderSuccess,
+} from "./services/sticky-comment.js";
+import type { TaskRecord } from "./domain/task.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -170,30 +176,74 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     rateLimitCooldownMs,
     registeredAgents: agentConfig.agents,
     notifyTaskFailure: async (task, errorSummary) => {
-      const body = `Task \`${task.taskId}\` failed before completion: ${errorSummary}`;
-      try {
-        if (task.source.kind === "issue") {
-          await githubClient.postIssueComment(
-            task.repo,
-            task.source.number,
-            body,
-          );
-        } else {
-          await githubClient.postPullRequestComment(
-            task.repo,
-            task.source.number,
-            body,
-          );
-        }
-      } catch (error) {
-        console.warn(
-          `[daemon] failed to post failure comment for task=${task.taskId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
+      const body = renderFailure(task, errorSummary);
+      await editStickyOrPost(task, body);
+    },
+    notifyTaskSucceeded: async (task) => {
+      if (task.stickyComment === undefined) {
+        return;
       }
+      await editSticky(task, renderSuccess(task));
+    },
+    notifyTaskRateLimited: async (task) => {
+      if (task.stickyComment === undefined) {
+        return;
+      }
+      await editSticky(task, renderRateLimited(task));
     },
   });
+
+  async function editSticky(task: TaskRecord, body: string): Promise<void> {
+    if (task.stickyComment === undefined) {
+      return;
+    }
+
+    try {
+      await githubClient.updateIssueComment(
+        task.stickyComment.repo,
+        task.stickyComment.commentId,
+        body,
+      );
+    } catch (error) {
+      console.warn(
+        `[daemon] failed to edit sticky comment for task=${task.taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  async function editStickyOrPost(
+    task: TaskRecord,
+    body: string,
+  ): Promise<void> {
+    if (task.stickyComment !== undefined) {
+      await editSticky(task, body);
+      return;
+    }
+
+    try {
+      if (task.source.kind === "issue") {
+        await githubClient.postIssueComment(
+          task.repo,
+          task.source.number,
+          body,
+        );
+      } else {
+        await githubClient.postPullRequestComment(
+          task.repo,
+          task.source.number,
+          body,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        `[daemon] failed to post failure comment for task=${task.taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   const enqueueService = new EnqueueService({
     instructionLoader,

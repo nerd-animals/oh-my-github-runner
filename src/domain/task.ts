@@ -13,6 +13,12 @@ export interface SourceRef {
   number: number;
 }
 
+export interface StickyCommentRef {
+  repo: RepoRef;
+  issueNumber: number;
+  commentId: number;
+}
+
 export interface TaskRecord {
   taskId: string;
   repo: RepoRef;
@@ -28,4 +34,5 @@ export interface TaskRecord {
   startedAt?: string;
   finishedAt?: string;
   errorSummary?: string;
+  stickyComment?: StickyCommentRef;
 }

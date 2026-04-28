@@ -51,8 +51,10 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
             merged: false,
             headRef: null,
           }),
-          postIssueComment: async () => {},
-          postPullRequestComment: async () => {},
+          postIssueComment: async () => ({ commentId: 1, body: "" }),
+          postPullRequestComment: async () => ({ commentId: 1, body: "" }),
+          updateIssueComment: async () => {},
+          addReaction: async () => {},
         },
         deliveryDedup: new DeliveryDedupCache({ ttlMs: 60_000 }),
       });

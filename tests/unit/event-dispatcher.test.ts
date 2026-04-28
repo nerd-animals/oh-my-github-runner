@@ -41,7 +41,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { body: "/claude" },
+      comment: { id: 1, body: "/claude" },
       sender: { id: 1, login: "our-bot" },
     });
 
@@ -86,7 +86,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { body: "/claude" },
+      comment: { id: 1, body: "/claude" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -102,7 +102,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { body: "/claude implement add tests" },
+      comment: { id: 3, body: "/claude implement add tests" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -119,7 +119,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { body: "/claude" },
+      comment: { id: 1, body: "/claude" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -136,7 +136,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -152,7 +152,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { body: "/claude Implement" },
+      comment: { id: 4, body: "/claude Implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -168,7 +168,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, isFork: true }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -184,7 +184,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, merged: true }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -200,7 +200,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, state: "closed" }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -216,7 +216,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, headRef: null }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -232,7 +232,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { body: "Just a normal comment" },
+      comment: { id: 5, body: "Just a normal comment" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -246,7 +246,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { body: "/codex implement" },
+      comment: { id: 6, body: "/codex implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -279,7 +279,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 999, login: "stranger" },
     });
 
@@ -295,7 +295,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 5 }),
-      comment: { body: "/claude implement" },
+      comment: { id: 2, body: "/claude implement" },
       sender: { id: 999, login: "stranger" },
     });
 
@@ -314,7 +314,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { body: "/claude" },
+      comment: { id: 1, body: "/claude" },
       sender: { id: 1, login: "our-bot" },
     });
 
