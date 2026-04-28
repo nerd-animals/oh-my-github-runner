@@ -28,17 +28,12 @@ const TERMINAL_STATUSES = ["succeeded", "failed", "superseded"] as const;
 
 export class FileQueueStore implements QueueStore {
   private readonly dataDir: string;
-  private readonly legacyTasksFilePath: string;
-  private migrationPromise: Promise<void> | null = null;
 
   constructor(options: FileQueueStoreOptions) {
     this.dataDir = options.dataDir;
-    this.legacyTasksFilePath = path.join(this.dataDir, "tasks.json");
   }
 
   async enqueue(input: QueueTaskInput): Promise<TaskRecord> {
-    await this.ensureMigrated();
-
     for (const existing of await this.listInStatus("queued")) {
       if (hasSameSource(existing, input)) {
         existing.status = "superseded";
@@ -70,7 +65,6 @@ export class FileQueueStore implements QueueStore {
   }
 
   async listTasks(): Promise<TaskRecord[]> {
-    await this.ensureMigrated();
     const all: TaskRecord[] = [];
     for (const status of TASK_STATUSES) {
       all.push(...(await this.listInStatus(status)));
@@ -79,7 +73,6 @@ export class FileQueueStore implements QueueStore {
   }
 
   async getTask(taskId: string): Promise<TaskRecord | undefined> {
-    await this.ensureMigrated();
     for (const status of TASK_STATUSES) {
       const record = await this.tryReadTaskFile(status, taskId);
       if (record !== undefined) {
@@ -93,7 +86,6 @@ export class FileQueueStore implements QueueStore {
     taskId: string,
     instructionRevision: number,
   ): Promise<TaskRecord> {
-    await this.ensureMigrated();
     const task = await this.requireFromStatus("queued", taskId);
 
     task.status = "running";
@@ -110,7 +102,6 @@ export class FileQueueStore implements QueueStore {
     taskId: string,
     input: CompleteTaskInput,
   ): Promise<TaskRecord> {
-    await this.ensureMigrated();
     const task = await this.requireFromStatus("running", taskId);
 
     task.status = input.status;
@@ -127,7 +118,6 @@ export class FileQueueStore implements QueueStore {
   }
 
   async revertToQueued(taskId: string): Promise<TaskRecord> {
-    await this.ensureMigrated();
     const task = await this.requireFromStatus("running", taskId);
 
     task.status = "queued";
@@ -141,7 +131,6 @@ export class FileQueueStore implements QueueStore {
   }
 
   async recoverRunningTasks(errorSummary: string): Promise<void> {
-    await this.ensureMigrated();
     for (const task of await this.listInStatus("running")) {
       task.status = "failed";
       task.finishedAt = new Date().toISOString();
@@ -151,7 +140,6 @@ export class FileQueueStore implements QueueStore {
   }
 
   async pruneTerminalTasks(olderThan: Date): Promise<number> {
-    await this.ensureMigrated();
     const cutoffMs = olderThan.getTime();
     let pruned = 0;
     for (const status of TERMINAL_STATUSES) {
@@ -289,36 +277,6 @@ export class FileQueueStore implements QueueStore {
       throw new Error(`Task not found: ${taskId}`);
     }
     return task;
-  }
-
-  private async ensureMigrated(): Promise<void> {
-    if (this.migrationPromise === null) {
-      this.migrationPromise = this.runMigration();
-    }
-    return this.migrationPromise;
-  }
-
-  private async runMigration(): Promise<void> {
-    let raw: string;
-    try {
-      raw = await readFile(this.legacyTasksFilePath, "utf8");
-    } catch (error) {
-      if (isMissingFile(error)) {
-        return;
-      }
-      throw error;
-    }
-    const tasks = JSON.parse(raw) as TaskRecord[];
-    for (const task of tasks) {
-      if (typeof task.agent !== "string" || task.agent.length === 0) {
-        task.agent = "claude";
-      }
-      await this.writeTaskFile(task);
-    }
-    await rename(
-      this.legacyTasksFilePath,
-      `${this.legacyTasksFilePath}.migrated`,
-    );
   }
 }
 

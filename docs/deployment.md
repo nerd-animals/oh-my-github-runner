@@ -97,9 +97,6 @@ the following are missing:
   `succeeded/`, `failed/`, `superseded/` are pruned by mtime; the daemon
   runs a sweep on boot and every 24h, retaining files for
   `RUNNER_QUEUE_RETENTION_DAYS` (default 7).
-- `var/queue/tasks.json.migrated` — only present after a one-time migration
-  from the previous single-file layout. Kept on disk as a debug artefact
-  and never read again.
 - `var/queue/state.json` — per-agent rate-limit `pausedUntil`; deleting this
   file is the manual override to resume queued work immediately
 - `var/repos/<owner>/<name>/mirror.git` — bare mirror per repo (cached

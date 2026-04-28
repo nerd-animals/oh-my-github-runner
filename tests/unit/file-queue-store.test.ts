@@ -1,12 +1,5 @@
 import assert from "node:assert/strict";
-import {
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -152,62 +145,6 @@ describe("FileQueueStore", () => {
       assert.deepEqual(await readdir(join(root, "succeeded")), [
         `${task.taskId}.json`,
       ]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("migrates legacy tasks.json into per-status directories on first use", async () => {
-    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
-
-    try {
-      const legacyRecords = [
-        {
-          taskId: "task_q",
-          repo: { owner: "octo", name: "repo" },
-          source: { kind: "issue", number: 100 },
-          instructionId: "issue-comment-reply",
-          // Legacy record without an agent field — must default to claude.
-          status: "queued",
-          priority: "normal",
-          requestedBy: "test",
-          createdAt: "2026-04-24T00:00:00.000Z",
-        },
-        {
-          taskId: "task_done",
-          repo: { owner: "octo", name: "repo" },
-          source: { kind: "pull_request", number: 7 },
-          instructionId: "pr-review",
-          agent: "claude",
-          status: "succeeded",
-          priority: "normal",
-          requestedBy: "test",
-          createdAt: "2026-04-23T00:00:00.000Z",
-          startedAt: "2026-04-23T00:00:01.000Z",
-          finishedAt: "2026-04-23T00:00:30.000Z",
-        },
-      ];
-      const legacyPath = join(root, "tasks.json");
-      await writeFile(legacyPath, JSON.stringify(legacyRecords, null, 2));
-
-      const store = new FileQueueStore({ dataDir: root });
-      const tasks = await store.listTasks();
-
-      assert.equal(tasks.length, 2);
-      const queued = tasks.find((t) => t.taskId === "task_q");
-      const succeeded = tasks.find((t) => t.taskId === "task_done");
-      assert.equal(queued?.status, "queued");
-      assert.equal(queued?.agent, "claude");
-      assert.equal(succeeded?.status, "succeeded");
-
-      assert.deepEqual(await readdir(join(root, "queued")), ["task_q.json"]);
-      assert.deepEqual(await readdir(join(root, "succeeded")), [
-        "task_done.json",
-      ]);
-
-      const rootEntries = await readdir(root);
-      assert.ok(rootEntries.includes("tasks.json.migrated"));
-      assert.ok(!rootEntries.includes("tasks.json"));
     } finally {
       await rm(root, { recursive: true, force: true });
     }

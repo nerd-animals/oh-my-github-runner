@@ -68,6 +68,11 @@ while true; do
 done
 
 git reset --hard "$remote"
+# One-time cleanup of the legacy single-file queue from before the
+# task-per-file refactor. Idempotent (-f) — noop on every deploy after
+# the first, and harmless even on a fresh install where the file never
+# existed.
+rm -f "$LEGACY_TASKS_JSON"
 # Keep dev deps because tsc (typescript) lives in devDependencies and is
 # required for `npm run compile`.
 npm ci --silent
