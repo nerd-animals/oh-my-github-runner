@@ -163,7 +163,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
 
   const promptAssets = await loadPromptAssets({
     promptsDir: path.join(runnerRoot, "definitions", "prompts"),
-    personaName: "architecture",
   });
 
   const daemon = new RunnerDaemon({

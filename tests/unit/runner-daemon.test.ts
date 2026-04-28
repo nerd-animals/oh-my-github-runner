@@ -11,6 +11,7 @@ const instruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "observe",
   workflow: "observe",
+  persona: "architecture",
   context: {},
   permissions: {
     codeRead: true,

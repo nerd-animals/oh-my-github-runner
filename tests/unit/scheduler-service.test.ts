@@ -10,6 +10,7 @@ const observeInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "observe",
   workflow: "observe",
+  persona: "architecture",
   context: {},
   permissions: {
     codeRead: true,
@@ -31,6 +32,7 @@ const mutateInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "mutate",
   workflow: "mutate",
+  persona: "implementation",
   context: {},
   permissions: {
     codeRead: true,

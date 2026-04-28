@@ -35,6 +35,7 @@ const observeInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "observe",
   workflow: "observe",
+  persona: "architecture",
   context: {},
   permissions: {
     codeRead: true,
@@ -55,6 +56,7 @@ const mutateInstruction: InstructionDefinition = {
   id: "issue-implement",
   mode: "mutate",
   workflow: "mutate",
+  persona: "implementation",
   permissions: {
     codeRead: true,
     codeWrite: true,
@@ -70,7 +72,12 @@ const modePolicies: ModePolicies = {
   mutate: "- Mode: mutate\n- MUTATE-MARKER\n- PUSH-FAILURE-MARKER",
 };
 
-const emptyAssets = { commonRules: "", persona: "", modePolicies };
+const personas: Record<string, string> = {
+  architecture: "",
+  implementation: "",
+};
+
+const emptyAssets = { commonRules: "", personas, modePolicies };
 
 describe("ExecutionPromptBuilder", () => {
   test("observe prompts inject the observe mode policy under Policy:", () => {
@@ -104,10 +111,13 @@ describe("ExecutionPromptBuilder", () => {
     );
   });
 
-  test("prepends common rules and persona before the instruction core", () => {
+  test("prepends common rules and the instruction's persona before the instruction core", () => {
     const prompt = new ExecutionPromptBuilder({
       commonRules: "# Common Work Rules\nFollow them.",
-      persona: "# Architecture Persona\nReason in layers.",
+      personas: {
+        architecture: "# Architecture Persona\nReason in layers.",
+        implementation: "# Implementation Persona\nWrite code.",
+      },
       modePolicies,
     }).build({
       task: baseTask,
@@ -129,6 +139,85 @@ describe("ExecutionPromptBuilder", () => {
     assert.ok(
       personaIndex < instructionIndex,
       "persona should precede instruction core",
+    );
+    assert.ok(
+      !prompt.includes("Implementation Persona"),
+      "non-selected personas must not leak into the prompt",
+    );
+  });
+
+  test("selects persona by instruction.persona, not a fixed name", () => {
+    const prompt = new ExecutionPromptBuilder({
+      commonRules: "",
+      personas: {
+        architecture: "ARCH-MARKER",
+        implementation: "IMPL-MARKER",
+      },
+      modePolicies,
+    }).build({
+      task: baseTask,
+      instruction: mutateInstruction,
+      context: issueContext,
+    });
+
+    assert.ok(prompt.includes("IMPL-MARKER"));
+    assert.ok(!prompt.includes("ARCH-MARKER"));
+  });
+
+  test("throws on unknown persona name", () => {
+    const builder = new ExecutionPromptBuilder({
+      commonRules: "",
+      personas: { architecture: "x" },
+      modePolicies,
+    });
+
+    assert.throws(
+      () =>
+        builder.build({
+          task: baseTask,
+          instruction: { ...observeInstruction, persona: "no-such-persona" },
+          context: issueContext,
+        }),
+      /Unknown persona 'no-such-persona'/,
+    );
+  });
+
+  test("appends 'Instruction guidance:' section when instruction has guidance", () => {
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: {
+        ...mutateInstruction,
+        guidance: "- Include `Closes #N` in the PR body.",
+      },
+      context: issueContext,
+    });
+
+    const policyIndex = prompt.indexOf("Policy:");
+    const guidanceIndex = prompt.indexOf("Instruction guidance:");
+    const bodyIndex = prompt.indexOf("Linked PRs (closes):");
+
+    assert.notEqual(guidanceIndex, -1, "guidance section must appear");
+    assert.ok(
+      policyIndex < guidanceIndex,
+      "guidance should follow Policy section",
+    );
+    assert.ok(
+      guidanceIndex < bodyIndex,
+      "guidance should precede data sections",
+    );
+    assert.match(prompt, /Instruction guidance:\n- Include `Closes #N`/);
+  });
+
+  test("omits guidance section entirely when instruction has no guidance", () => {
+    const prompt = new ExecutionPromptBuilder(emptyAssets).build({
+      task: baseTask,
+      instruction: observeInstruction,
+      context: issueContext,
+    });
+
+    assert.ok(
+      !prompt.includes("Instruction guidance:"),
+      "guidance section must be omitted when not provided",
     );
   });
 

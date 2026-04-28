@@ -9,6 +9,7 @@ const issueImplementInstruction: InstructionDefinition = {
   sourceKind: "issue",
   mode: "mutate",
   workflow: "mutate",
+  persona: "implementation",
   context: {
     includeIssueBody: true,
     includeIssueComments: true,
