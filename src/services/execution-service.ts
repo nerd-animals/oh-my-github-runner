@@ -7,6 +7,7 @@ import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
 import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
 import { buildBranchName } from "../domain/rules/task-naming.js";
 import type { PromptAssets } from "../infra/prompts/prompt-asset-loader.js";
+import type { CleanupAgentArtifacts } from "../infra/agent/claude-projects-cleaner.js";
 import type { AgentRegistry } from "./agent-registry.js";
 
 export interface ExecutionServiceDependencies {
@@ -15,6 +16,7 @@ export interface ExecutionServiceDependencies {
   agentRegistry: Pick<AgentRegistry, "resolve">;
   logStore: LogStore;
   promptAssets: PromptAssets;
+  cleanupAgentArtifacts: CleanupAgentArtifacts;
 }
 
 export interface ExecuteTaskInput {
@@ -101,6 +103,7 @@ export class ExecutionService {
       return { status: "succeeded" };
     } finally {
       await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
+      await this.dependencies.cleanupAgentArtifacts(workspace.workspacePath);
     }
   }
 
@@ -140,6 +143,7 @@ export class ExecutionService {
       return { status: "succeeded" };
     } finally {
       await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
+      await this.dependencies.cleanupAgentArtifacts(workspace.workspacePath);
     }
   }
 
@@ -173,6 +177,7 @@ export class ExecutionService {
       return { status: "succeeded" };
     } finally {
       await this.dependencies.workspaceManager.cleanupWorkspace(workspace);
+      await this.dependencies.cleanupAgentArtifacts(workspace.workspacePath);
     }
   }
 

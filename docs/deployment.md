@@ -103,6 +103,12 @@ the following are missing:
 - `var/workspaces/<task-id>/` — per-task working tree (created and removed
   per task)
 - `var/logs/<task-id>.log` — per-task log line history
+- `~/.claude/projects/<encoded-cwd>/` — claude CLI transcript / subagent
+  logs / per-cwd memory dropped by the agent CLI itself. The runner
+  deletes the per-task directory in the same `finally` block that removes
+  the workspace; `CLAUDE_HOME` overrides `~/.claude` for tests or alt
+  layouts. Pre-existing accumulation can be one-shot cleaned with
+  `rm -rf ~/.claude/projects/-home-ubuntu-runner-deploy-var-workspaces-task-*`.
 
 ## Verifying the tunnel
 
