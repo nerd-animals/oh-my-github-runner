@@ -34,6 +34,7 @@ export class ExecutionService {
     this.promptBuilder = new ExecutionPromptBuilder({
       commonRules: dependencies.promptAssets.commonRules,
       persona: dependencies.promptAssets.persona,
+      modePolicies: dependencies.promptAssets.modePolicies,
     });
   }
 

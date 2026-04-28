@@ -3,7 +3,10 @@ import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { ExecutionPromptBuilder } from "../../src/domain/rules/execution-prompt.js";
+import {
+  ExecutionPromptBuilder,
+  type ModePolicies,
+} from "../../src/domain/rules/execution-prompt.js";
 
 const baseTask: TaskRecord = {
   taskId: "task_1",
@@ -61,43 +64,50 @@ const mutateInstruction: InstructionDefinition = {
   },
 };
 
-const emptyAssets = { commonRules: "", persona: "" };
+const modePolicies: ModePolicies = {
+  observe: "- Mode: observe\n- READ-ONLY-MARKER",
+  mutate: "- Mode: mutate\n- MUTATE-MARKER\n- PUSH-FAILURE-MARKER",
+};
+
+const emptyAssets = { commonRules: "", persona: "", modePolicies };
 
 describe("ExecutionPromptBuilder", () => {
-  test("observe prompts forbid workspace writes and tell the agent to post comments itself", () => {
+  test("observe prompts inject the observe mode policy under Policy:", () => {
     const prompt = new ExecutionPromptBuilder(emptyAssets).build({
       task: baseTask,
       instruction: observeInstruction,
       context: issueContext,
     });
 
-    assert.match(prompt, /Policy:/);
-    assert.match(prompt, /- Mode: observe/);
-    assert.match(prompt, /MUST NOT modify files in the workspace/);
-    assert.match(prompt, /gh issue comment/);
-    assert.match(prompt, /runner does not write back/);
+    assert.match(prompt, /Policy:\n- Mode: observe\n- READ-ONLY-MARKER/);
+    assert.ok(
+      !prompt.includes("MUTATE-MARKER"),
+      "observe prompt must not leak mutate policy",
+    );
   });
 
-  test("mutate prompts allow push and gh pr create but tell the agent not to merge", () => {
+  test("mutate prompts inject the mutate mode policy (including push-failure guidance)", () => {
     const prompt = new ExecutionPromptBuilder(emptyAssets).build({
       task: baseTask,
       instruction: mutateInstruction,
       context: issueContext,
     });
 
-    assert.match(prompt, /Policy:/);
-    assert.match(prompt, /- Mode: mutate/);
-    assert.match(prompt, /git push/);
-    assert.match(prompt, /gh pr create/);
-    assert.match(prompt, /server-protected/);
-    assert.match(prompt, /MUST NOT merge/);
-    assert.match(prompt, /gh pr merge.*blocked/);
+    assert.match(
+      prompt,
+      /Policy:\n- Mode: mutate\n- MUTATE-MARKER\n- PUSH-FAILURE-MARKER/,
+    );
+    assert.ok(
+      !prompt.includes("READ-ONLY-MARKER"),
+      "mutate prompt must not leak observe policy",
+    );
   });
 
   test("prepends common rules and persona before the instruction core", () => {
     const prompt = new ExecutionPromptBuilder({
       commonRules: "# Common Work Rules\nFollow them.",
       persona: "# Architecture Persona\nReason in layers.",
+      modePolicies,
     }).build({
       task: baseTask,
       instruction: observeInstruction,
