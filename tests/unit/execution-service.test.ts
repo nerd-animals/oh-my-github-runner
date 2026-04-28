@@ -240,6 +240,7 @@ function buildFixture(options: BuildOptions = {}): Fixture {
       write: async () => {},
       cleanupExpired: async () => {},
     },
+    promptAssets: { commonRules: "", persona: "" },
   });
 
   return {

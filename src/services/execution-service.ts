@@ -6,6 +6,7 @@ import type { LogStore } from "../domain/ports/log-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
 import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
 import { buildBranchName } from "../domain/rules/task-naming.js";
+import type { PromptAssets } from "../infra/prompts/prompt-asset-loader.js";
 import type { AgentRegistry } from "./agent-registry.js";
 
 export interface ExecutionServiceDependencies {
@@ -13,6 +14,7 @@ export interface ExecutionServiceDependencies {
   workspaceManager: WorkspaceManager;
   agentRegistry: Pick<AgentRegistry, "resolve">;
   logStore: LogStore;
+  promptAssets: PromptAssets;
 }
 
 export interface ExecuteTaskInput {
@@ -26,9 +28,14 @@ export type ExecuteTaskResult =
   | { status: "rate_limited"; agentName: string };
 
 export class ExecutionService {
-  private readonly promptBuilder = new ExecutionPromptBuilder();
+  private readonly promptBuilder: ExecutionPromptBuilder;
 
-  constructor(private readonly dependencies: ExecutionServiceDependencies) {}
+  constructor(private readonly dependencies: ExecutionServiceDependencies) {
+    this.promptBuilder = new ExecutionPromptBuilder({
+      commonRules: dependencies.promptAssets.commonRules,
+      persona: dependencies.promptAssets.persona,
+    });
+  }
 
   async execute(input: ExecuteTaskInput): Promise<ExecuteTaskResult> {
     await this.dependencies.logStore.write(
