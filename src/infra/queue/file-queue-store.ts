@@ -255,11 +255,7 @@ export class FileQueueStore implements QueueStore {
   ): Promise<TaskRecord | undefined> {
     try {
       const raw = await readFile(this.taskPath(status, taskId), "utf8");
-      const task = JSON.parse(raw) as TaskRecord;
-      if (typeof task.agent !== "string" || task.agent.length === 0) {
-        task.agent = "claude";
-      }
-      return task;
+      return JSON.parse(raw) as TaskRecord;
     } catch (error) {
       if (isMissingFile(error)) {
         return undefined;

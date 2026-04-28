@@ -8,7 +8,6 @@ set -euo pipefail
 
 REPO_ROOT=${REPO_ROOT:-/home/ubuntu/runner-deploy}
 SERVICE=${SERVICE:-oh-my-github-runner.service}
-LEGACY_TASKS_JSON="$REPO_ROOT/var/queue/tasks.json"
 RUNNING_DIR="$REPO_ROOT/var/queue/running"
 POLL_SEC=${RUNNER_DEPLOY_POLL_SEC:-5}
 
@@ -30,49 +29,20 @@ echo "Updating $current -> $remote"
 # while tasks are running, recoverRunningTasks() would mark them as failed.
 # Run this BEFORE git reset so disk and memory stay aligned at the old SHA;
 # if the workflow gets killed mid-wait, the next push retries naturally.
-#
-# Two queue layouts coexist for one deploy cycle: the legacy single-file
-# `tasks.json` (still in use by the running daemon when this PR first lands)
-# and the new task-per-file `running/<id>.json` directory. Sum both — once
-# the new daemon takes over and migrates `tasks.json` to `tasks.json.migrated`
-# the legacy count is naturally always 0.
 while true; do
-  # Legacy: count `status=="running"` records inside tasks.json.
-  # jq 1.6 returns exit 0 with empty stdout on a zero-byte file, so normalize
-  # any non-integer result to "?" — transient corruption hits the retry log
-  # instead of a silent break.
-  if [ -f "$LEGACY_TASKS_JSON" ]; then
-    legacy=$(jq -r '[.[] | select(.status=="running")] | length' "$LEGACY_TASKS_JSON" 2>/dev/null || true)
-    case "$legacy" in
-      ''|*[!0-9]*) legacy="?";;
-    esac
-  else
-    legacy="0"
-  fi
-
-  # New layout: every file in running/ is one running task.
   if [ -d "$RUNNING_DIR" ]; then
-    new_count=$(find "$RUNNING_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l)
+    running=$(find "$RUNNING_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l)
   else
-    new_count=0
+    running=0
   fi
-
-  if [ "$legacy" = "?" ]; then
-    echo "tasks.json read failed transiently; retrying in ${POLL_SEC}s"
-  elif [ "$legacy" = "0" ] && [ "$new_count" = "0" ]; then
+  if [ "$running" -eq 0 ]; then
     break
-  else
-    echo "Waiting: legacy=${legacy} new=${new_count} task(s) still running"
   fi
+  echo "Waiting: $running task(s) still running"
   sleep "$POLL_SEC"
 done
 
 git reset --hard "$remote"
-# One-time cleanup of the legacy single-file queue from before the
-# task-per-file refactor. Idempotent (-f) — noop on every deploy after
-# the first, and harmless even on a fresh install where the file never
-# existed.
-rm -f "$LEGACY_TASKS_JSON"
 # Keep dev deps because tsc (typescript) lives in devDependencies and is
 # required for `npm run compile`.
 npm ci --silent

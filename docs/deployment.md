@@ -13,8 +13,7 @@ that user's home directory; secrets live under `/etc`.
 ## Prerequisites
 
 - Ubuntu host with Node.js >= 20 installed
-- `git` and `jq` available on `$PATH` (`apt-get install -y jq` if missing —
-  used by `ops/scripts/deploy.sh` to count running tasks before restart)
+- `git` available on `$PATH`
 - A GitHub App with:
   - Permissions: Issues (RW), Pull requests (RW), Contents (RW), Metadata (R)
   - Subscribed events: Issues, Issue comment, Pull request review comment
@@ -198,16 +197,14 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
 - Deploy waits for running tasks to drain before resetting and restarting
-  (polling every 5s, override via `RUNNER_DEPLOY_POLL_SEC`). It counts both
-  legacy `tasks.json` (`status=="running"`) and the new
-  `var/queue/running/*.json` so it stays correct across the migration cycle.
-  The wait has no internal timeout — the GitHub Actions workflow
-  `timeout-minutes` (15) is the only outer bound; if the wait exceeds it,
-  the SSH session is killed and the next push retries. `queued` tasks are
-  unaffected — they survive the restart and resume from the new code.
-  Bumping an instruction `revision` in `definitions/instructions/*.yaml`
-  follows the same flow: in-flight tasks finish on the old revision, new
-  tasks pick up the new one.
+  (counts files in `var/queue/running/`, polling every 5s, override via
+  `RUNNER_DEPLOY_POLL_SEC`). The wait has no internal timeout — the
+  GitHub Actions workflow `timeout-minutes` (15) is the only outer bound;
+  if the wait exceeds it, the SSH session is killed and the next push
+  retries. `queued` tasks are unaffected — they survive the restart and
+  resume from the new code. Bumping an instruction `revision` in
+  `definitions/instructions/*.yaml` follows the same flow: in-flight
+  tasks finish on the old revision, new tasks pick up the new one.
 - Tweak retention for terminal tasks with `RUNNER_QUEUE_RETENTION_DAYS`
   (default 7). Files under `var/queue/{succeeded,failed,superseded}/` older
   than the cutoff are removed by the daemon at boot and every 24h.
