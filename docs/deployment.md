@@ -13,7 +13,8 @@ that user's home directory; secrets live under `/etc`.
 ## Prerequisites
 
 - Ubuntu host with Node.js >= 20 installed
-- `git` available on `$PATH`
+- `git` and `jq` available on `$PATH` (`apt-get install -y jq` if missing —
+  used by `ops/scripts/deploy.sh` to count running tasks before restart)
 - A GitHub App with:
   - Permissions: Issues (RW), Pull requests (RW), Contents (RW), Metadata (R)
   - Subscribed events: Issues, Issue comment, Pull request review comment
@@ -185,13 +186,21 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   in-flight tasks as failed. The daemon's `notifyTaskFailure` callback
   posts a `Task <id> failed before completion: <summary>` comment to the
   originating issue or PR. Orphaned workspaces under `var/workspaces/`
-  are not cleaned automatically in v1.
+  are not cleaned automatically in v1. Note: `deploy.sh` now waits for
+  running tasks to drain before reset/restart, so the normal push flow
+  no longer trips this path; `recoverRunningTasks` is reserved for actual
+  crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
-- When deploying a change that bumps an instruction `revision` in
-  `definitions/instructions/*.yaml`, prefer to deploy when the queue is
-  empty (`jq '[.[] | select(.status=="running" or .status=="queued")] | length' var/queue/tasks.json`).
-  In-flight tasks pinned to the old revision will keep running with the
-  old prompt; new tasks pick up the new revision.
+- Deploy waits for `status=="running"` tasks to drain (5s polling) before
+  resetting and restarting. Defaults: timeout 600s
+  (`RUNNER_DEPLOY_IDLE_TIMEOUT_SEC`), polling 5s (`RUNNER_DEPLOY_POLL_SEC`).
+  On timeout the deploy is skipped and the next push retries; set
+  `RUNNER_DEPLOY_FORCE_RESTART=1` to override and accept that the running
+  task will be marked failed by `recoverRunningTasks`. `queued` tasks are
+  unaffected — they survive the restart and resume from the new code.
+  Bumping an instruction `revision` in `definitions/instructions/*.yaml`
+  follows the same flow: in-flight tasks finish on the old revision, new
+  tasks pick up the new one.
 
 ## Recommended GitHub setup (not enforced by code)
 
