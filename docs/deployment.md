@@ -191,12 +191,11 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   no longer trips this path; `recoverRunningTasks` is reserved for actual
   crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
-- Deploy waits for `status=="running"` tasks to drain (5s polling) before
-  resetting and restarting. Defaults: timeout 600s
-  (`RUNNER_DEPLOY_IDLE_TIMEOUT_SEC`), polling 5s (`RUNNER_DEPLOY_POLL_SEC`).
-  On timeout the deploy is skipped and the next push retries; set
-  `RUNNER_DEPLOY_FORCE_RESTART=1` to override and accept that the running
-  task will be marked failed by `recoverRunningTasks`. `queued` tasks are
+- Deploy waits for `status=="running"` tasks to drain before resetting and
+  restarting (polling every 5s, override via `RUNNER_DEPLOY_POLL_SEC`).
+  The wait has no internal timeout — the GitHub Actions workflow
+  `timeout-minutes` (15) is the only outer bound; if the wait exceeds it,
+  the SSH session is killed and the next push retries. `queued` tasks are
   unaffected — they survive the restart and resume from the new code.
   Bumping an instruction `revision` in `definitions/instructions/*.yaml`
   follows the same flow: in-flight tasks finish on the old revision, new

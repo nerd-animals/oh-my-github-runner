@@ -9,7 +9,6 @@ set -euo pipefail
 REPO_ROOT=${REPO_ROOT:-/home/ubuntu/runner-deploy}
 SERVICE=${SERVICE:-oh-my-github-runner.service}
 TASKS_JSON="$REPO_ROOT/var/queue/tasks.json"
-IDLE_TIMEOUT_SEC=${RUNNER_DEPLOY_IDLE_TIMEOUT_SEC:-600}
 POLL_SEC=${RUNNER_DEPLOY_POLL_SEC:-5}
 
 cd "$REPO_ROOT"
@@ -28,28 +27,26 @@ echo "Updating $current -> $remote"
 
 # Wait for running tasks to drain before reset/build/restart. If we restarted
 # while tasks are running, recoverRunningTasks() would mark them as failed.
-# Run this BEFORE git reset so a timeout-skip leaves disk == memory (both at
-# old SHA), letting the next deploy push retry naturally.
-elapsed=0
+# Run this BEFORE git reset so disk and memory stay aligned at the old SHA;
+# if the workflow gets killed mid-wait, the next push retries naturally.
 while [ -f "$TASKS_JSON" ]; do
-  running=$(jq -r '[.[] | select(.status=="running")] | length' "$TASKS_JSON" 2>/dev/null || echo "?")
+  # jq 1.6 returns exit 0 with empty stdout on a zero-byte file (e.g. mid
+  # atomic rewrite), so `|| echo "?"` alone isn't enough — normalize any
+  # non-integer result to "?" so transient corruption falls into the retry
+  # branch instead of a silent break.
+  running=$(jq -r '[.[] | select(.status=="running")] | length' "$TASKS_JSON" 2>/dev/null || true)
+  case "$running" in
+    ''|*[!0-9]*) running="?";;
+  esac
   if [ "$running" = "0" ]; then
     break
   fi
   if [ "$running" = "?" ]; then
     echo "tasks.json read failed transiently; retrying in ${POLL_SEC}s"
-  elif [ "$elapsed" -ge "$IDLE_TIMEOUT_SEC" ]; then
-    if [ "${RUNNER_DEPLOY_FORCE_RESTART:-0}" = "1" ]; then
-      echo "Timed out waiting for $running running task(s); forcing restart per RUNNER_DEPLOY_FORCE_RESTART=1."
-      break
-    fi
-    echo "Timed out (${IDLE_TIMEOUT_SEC}s) with $running running task(s); skipping deploy. Next push will retry."
-    exit 0
   else
-    echo "Waiting: $running task(s) still running (elapsed=${elapsed}s, timeout=${IDLE_TIMEOUT_SEC}s)"
+    echo "Waiting: $running task(s) still running"
   fi
   sleep "$POLL_SEC"
-  elapsed=$((elapsed + POLL_SEC))
 done
 
 git reset --hard "$remote"
