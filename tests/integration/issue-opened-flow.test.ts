@@ -1,9 +1,8 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { FileInstructionLoader } from "../../src/infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "../../src/infra/queue/file-queue-store.js";
 import { DeliveryDedupCache } from "../../src/infra/webhook/delivery-dedup.js";
 import { computeHubSignature } from "../../src/infra/webhook/hmac-verifier.js";
@@ -21,19 +20,12 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
     try {
       const queueDir = join(tempDir, "var", "queue");
       const queueStore = new FileQueueStore({ dataDir: queueDir });
-      const instructionLoader = new FileInstructionLoader(
-        join(process.cwd(), "definitions", "instructions"),
-      );
       const enqueueService = new EnqueueService({
-        instructionLoader,
         queueStore,
       });
 
       const dispatcher = new EventDispatcher({
-        agentRegistry: {
-          has: (name) => name === "claude",
-          getDefaultAgent: () => "claude",
-        },
+        resolveStrategyTool: () => "claude",
         botUserId: 9999,
         allowedSenderIds: new Set([42, 100, 200]),
       });
@@ -83,7 +75,7 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       assert.equal(tasks.length, 1);
       const task = tasks[0]!;
       assert.equal(task.instructionId, "issue-initial-review");
-      assert.equal(task.agent, "claude");
+      assert.equal(task.tool, "claude");
       assert.equal(task.status, "queued");
       assert.deepEqual(task.repo, {
         owner: REPO_OWNER,

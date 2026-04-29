@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { hasSameSource, type QueueTaskInput } from "../../domain/queue-task.js";
-import type { TaskRecord } from "../../domain/task.js";
+import type { RepoRef, SourceRef, TaskRecord } from "../../domain/task.js";
 import { TASK_STATUSES, type TaskStatus } from "../../domain/task-status.js";
 import type {
   CompleteTaskInput,
@@ -34,19 +34,17 @@ export class FileQueueStore implements QueueStore {
   }
 
   async enqueue(input: QueueTaskInput): Promise<TaskRecord> {
-    for (const existing of await this.listInStatus("queued")) {
-      if (hasSameSource(existing, input)) {
-        existing.status = "superseded";
-        await this.relocate(existing, "queued");
-      }
-    }
+    // Supersede-on-same-source is a service-layer policy now: EnqueueService
+    // reads the strategy's `supersedeOnSameSource` flag and calls
+    // markSuperseded(...) for each conflicting active task. The store is
+    // a dumb persistence layer.
 
     const newTask: TaskRecord = {
       taskId: input.taskId ?? createTaskId(),
       repo: input.repo,
       source: input.source,
       instructionId: input.instructionId,
-      agent: input.agent,
+      tool: input.tool,
       ...(input.additionalInstructions !== undefined &&
       input.additionalInstructions.length > 0
         ? { additionalInstructions: input.additionalInstructions }
@@ -84,14 +82,10 @@ export class FileQueueStore implements QueueStore {
     return undefined;
   }
 
-  async startTask(
-    taskId: string,
-    instructionRevision: number,
-  ): Promise<TaskRecord> {
+  async startTask(taskId: string): Promise<TaskRecord> {
     const task = await this.requireFromStatus("queued", taskId);
 
     task.status = "running";
-    task.instructionRevision = instructionRevision;
     task.startedAt = new Date().toISOString();
     delete task.finishedAt;
     delete task.errorSummary;
@@ -126,10 +120,41 @@ export class FileQueueStore implements QueueStore {
     delete task.startedAt;
     delete task.finishedAt;
     delete task.errorSummary;
-    delete task.instructionRevision;
 
     await this.relocate(task, "running");
     return task;
+  }
+
+  async findActiveBySource(
+    repo: RepoRef,
+    source: SourceRef,
+  ): Promise<TaskRecord[]> {
+    const queued = await this.listInStatus("queued");
+    const running = await this.listInStatus("running");
+    return [...queued, ...running].filter((task) =>
+      hasSameSource(task, { repo, source }),
+    );
+  }
+
+  async markSuperseded(
+    taskId: string,
+    supersededBy: string,
+  ): Promise<TaskRecord> {
+    for (const status of ["queued", "running"] as const) {
+      const task = await this.tryReadTaskFile(status, taskId);
+      if (task === undefined) {
+        continue;
+      }
+      task.status = "superseded";
+      task.supersededBy = supersededBy;
+      task.finishedAt = new Date().toISOString();
+      delete task.errorSummary;
+      await this.relocate(task, status);
+      return task;
+    }
+    throw new Error(
+      `Cannot supersede task '${taskId}': not in queued or running status`,
+    );
   }
 
   async recoverRunningTasks(errorSummary: string): Promise<void> {

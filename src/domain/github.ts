@@ -42,6 +42,14 @@ export interface GitHubPullRequestContext {
 
 export type GitHubSourceContext = GitHubIssueContext | GitHubPullRequestContext;
 
+export interface SourceContextRequest {
+  includeIssueBody?: boolean;
+  includeIssueComments?: boolean;
+  includePrBody?: boolean;
+  includePrComments?: boolean;
+  includePrDiff?: boolean;
+}
+
 export interface GitHubPullRequestSummary {
   number: number;
   url: string;

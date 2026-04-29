@@ -3,33 +3,34 @@ import path from "node:path";
 import os from "node:os";
 import { RunnerDaemon } from "./daemon/runner-daemon.js";
 import { Runtime } from "./runtime.js";
-import { FileInstructionLoader } from "./infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "./infra/queue/file-queue-store.js";
 import { FileLogStore } from "./infra/logs/file-log-store.js";
 import { SchedulerService } from "./services/scheduler-service.js";
-import { ExecutionService } from "./services/execution-service.js";
 import { EnqueueService } from "./services/enqueue-service.js";
 import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
-import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
-import { createClaudeProjectsCleaner } from "./infra/agent/claude-projects-cleaner.js";
-import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detecting-agent-runner.js";
-import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
-import { buildClaudeToolArgs } from "./infra/agent/agent-tool-policies.js";
+import { HeadlessCommandToolRunner } from "./infra/tool/headless-command-tool-runner.js";
+import { createClaudeProjectsCleaner } from "./infra/tool/claude-projects-cleaner.js";
+import { RateLimitDetectingToolRunner } from "./infra/tool/rate-limit-detecting-tool-runner.js";
+import { loadToolDescriptor } from "./infra/tool/tool-descriptor.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
-import { loadPromptAssets } from "./infra/prompts/prompt-asset-loader.js";
+import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
+import { PromptRenderer } from "./infra/prompts/prompt-renderer.js";
+import { ToolkitFactory } from "./services/toolkit.js";
+import { getStrategy } from "./strategies/index.js";
 import {
-  AgentRegistry,
-  loadAgentConfigFromEnv,
-} from "./services/agent-registry.js";
+  ToolRegistry,
+  loadToolConfigFromEnv,
+} from "./services/tool-registry.js";
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
 import {
   renderFailure,
   renderRateLimited,
+  renderSuperseded,
 } from "./services/sticky-comment.js";
 import type { TaskRecord } from "./domain/task.js";
 
@@ -109,7 +110,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const workspacesDir = path.join(runnerRoot, "var", "workspaces");
   const claudeHome =
     process.env.CLAUDE_HOME ?? path.join(os.homedir(), ".claude");
-  const cleanupAgentArtifacts = createClaudeProjectsCleaner({
+  const cleanupToolArtifacts = createClaudeProjectsCleaner({
     workspacesDir,
     claudeHome,
   });
@@ -129,36 +130,32 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       ? { githubWebBaseUrl: process.env.GITHUB_WEB_BASE_URL }
       : {}),
   });
-  const agentConfig = loadAgentConfigFromEnv(process.env);
-  const agentDefinitionsDir = path.join(
+  const toolConfig = loadToolConfigFromEnv(process.env);
+  const toolDefinitionsDir = path.join(
     runnerRoot,
     "definitions",
-    "agents",
+    "tools",
   );
-  const agentEntries = await Promise.all(
-    agentConfig.agents.map(async (name) => {
-      const rateLimitConfig = await loadAgentRateLimitConfig(
-        agentDefinitionsDir,
-        name,
-      );
-      const inner = new HeadlessCommandAgentRunner({
-        command: agentConfig.commands[name]!.command,
-        args: agentConfig.commands[name]!.args,
+  const toolEntries = await Promise.all(
+    toolConfig.tools.map(async (name) => {
+      const descriptor = await loadToolDescriptor(toolDefinitionsDir, name);
+      const inner = new HeadlessCommandToolRunner({
+        command: toolConfig.commands[name]!,
+        args: [...descriptor.args],
         processRunner,
-        ...(name === "claude" ? { modeArgsBuilder: buildClaudeToolArgs } : {}),
       });
 
       return {
         name,
-        runner: new RateLimitDetectingAgentRunner({
+        runner: new RateLimitDetectingToolRunner({
           inner,
-          agentName: name,
-          config: rateLimitConfig,
+          toolName: name,
+          config: descriptor.rateLimit,
         }),
       };
     }),
   );
-  const agentRegistry = new AgentRegistry(agentEntries, agentConfig.defaultAgent);
+  const toolRegistry = new ToolRegistry(toolEntries);
 
   const rateLimitStateStore = new RateLimitStateStore({
     filePath: path.join(runnerRoot, "var", "queue", "state.json"),
@@ -171,32 +168,35 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const queueStore = new FileQueueStore({
     dataDir: path.join(runnerRoot, "var", "queue"),
   });
-  const instructionLoader = new FileInstructionLoader(
-    path.join(runnerRoot, "definitions", "instructions"),
-  );
 
-  const promptAssets = await loadPromptAssets({
+  const promptFragments = await loadPromptFragments({
     promptsDir: path.join(runnerRoot, "definitions", "prompts"),
+  });
+  const promptRenderer = new PromptRenderer({ fragments: promptFragments });
+  const toolkitFactory = new ToolkitFactory({
+    githubClient,
+    workspaceManager,
+    toolRegistry,
+    logStore,
+    promptRenderer,
+    cleanupToolArtifacts,
   });
 
   const daemon = new RunnerDaemon({
     queueStore,
-    instructionLoader,
     schedulerService: new SchedulerService({ maxConcurrency }),
-    executionService: new ExecutionService({
-      githubClient,
-      workspaceManager,
-      agentRegistry,
-      logStore,
-      promptAssets,
-      cleanupAgentArtifacts,
-    }),
+    runStrategy: (task, signal) =>
+      getStrategy(task.instructionId).run(
+        task,
+        toolkitFactory.create(task, signal),
+        signal,
+      ),
     logStore,
     pollIntervalMs,
     rateLimitStateStore,
     rateLimitCooldownMs,
     retentionMs: queueRetentionMs,
-    registeredAgents: agentConfig.agents,
+    registeredTools: toolConfig.tools,
     notifyTaskFailure: async (task, errorSummary) => {
       const body = renderFailure(task, errorSummary);
       await editStickyOrPost(task, body);
@@ -244,6 +244,14 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       }
       await editSticky(task, renderRateLimited(task));
     },
+    notifyTaskSuperseded: async (task, supersededBy) => {
+      if (task.notifications?.sticky === undefined) {
+        return;
+      }
+      await editSticky(task, renderSuperseded(task, supersededBy));
+    },
+    cleanupOrphanWorkspaces: (activeTaskIds) =>
+      workspaceManager.cleanupOrphanWorkspaces(activeTaskIds),
   });
 
   async function editSticky(task: TaskRecord, body: string): Promise<void> {
@@ -296,8 +304,8 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   }
 
   const enqueueService = new EnqueueService({
-    instructionLoader,
     queueStore,
+    onSupersede: (oldId, newId) => daemon.supersede(oldId, newId),
   });
 
   const botUserIdOverride = process.env.BOT_USER_ID;
@@ -313,7 +321,8 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const allowedSenderIds = parseSenderIdAllowlist("ALLOWED_SENDER_IDS");
 
   const dispatcher = new EventDispatcher({
-    agentRegistry,
+    resolveStrategyTool: (instructionId) =>
+      getStrategy(instructionId).policies.tool,
     botUserId,
     allowedSenderIds,
   });

@@ -5,6 +5,9 @@ export interface RunProcessInput {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   timeoutMs?: number;
+  /** Abort signal: SIGTERM the child, SIGKILL after `killGracePeriodMs`. */
+  signal?: AbortSignal;
+  killGracePeriodMs?: number;
 }
 
 export interface RunProcessResult {

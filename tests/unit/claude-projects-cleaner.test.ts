@@ -4,7 +4,7 @@ import {
   createClaudeProjectsCleaner,
   encodeProjectsDirName,
   type ClaudeProjectsCleanerFs,
-} from "../../src/infra/agent/claude-projects-cleaner.js";
+} from "../../src/infra/tool/claude-projects-cleaner.js";
 
 interface FsCall {
   op: "rm" | "stat";

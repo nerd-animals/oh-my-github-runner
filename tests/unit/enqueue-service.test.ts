@@ -1,39 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { EnqueueService } from "../../src/services/enqueue-service.js";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
-
-const issueImplementInstruction: InstructionDefinition = {
-  id: "issue-implement",
-  revision: 1,
-  sourceKind: "issue",
-  mode: "mutate",
-  workflow: "mutate",
-  persona: "implementation",
-  context: {
-    includeIssueBody: true,
-    includeIssueComments: true,
-  },
-  permissions: {
-    codeRead: true,
-    codeWrite: true,
-    gitPush: true,
-    prCreate: true,
-    prUpdate: true,
-    commentWrite: true,
-  },
-  githubActions: ["branch_push", "pr_create", "issue_comment"],
-  execution: {
-    timeoutSec: 3600,
-  },
-};
 
 describe("EnqueueService", () => {
-  test("rejects a source kind mismatch", async () => {
+  test("rejects an instructionId with no registered strategy", async () => {
     const service = new EnqueueService({
-      instructionLoader: {
-        loadById: async () => issueImplementInstruction,
-      },
       queueStore: {
         enqueue: async () => {
           throw new Error("should not be called");
@@ -49,6 +20,10 @@ describe("EnqueueService", () => {
         revertToQueued: async () => {
           throw new Error("should not be called");
         },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -57,27 +32,24 @@ describe("EnqueueService", () => {
     await assert.rejects(
       service.enqueue({
         repo: { owner: "octo", name: "repo" },
-        source: { kind: "pull_request", number: 52 },
-        instructionId: "issue-implement",
-        agent: "claude",
+        source: { kind: "issue", number: 100 },
+        instructionId: "nope-not-a-real-strategy",
+        tool: "claude",
         requestedBy: "test",
       }),
-      /source kind/i,
+      /no strategy is registered/i,
     );
   });
 
-  test("enqueues when the instruction matches the source kind", async () => {
+  test("enqueues a task for a known strategy id", async () => {
     const service = new EnqueueService({
-      instructionLoader: {
-        loadById: async () => issueImplementInstruction,
-      },
       queueStore: {
         enqueue: async (input) => ({
           taskId: "task_1",
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          agent: input.agent,
+          tool: input.tool,
           status: "queued",
           priority: input.priority ?? "normal",
           requestedBy: input.requestedBy,
@@ -94,6 +66,10 @@ describe("EnqueueService", () => {
         revertToQueued: async () => {
           throw new Error("should not be called");
         },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -103,12 +79,76 @@ describe("EnqueueService", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 100 },
       instructionId: "issue-implement",
-      agent: "claude",
+      tool: "claude",
       requestedBy: "test",
     });
 
     assert.equal(task.taskId, "task_1");
     assert.equal(task.status, "queued");
-    assert.equal(task.agent, "claude");
+    assert.equal(task.tool, "claude");
+    assert.equal(task.instructionId, "issue-implement");
+  });
+
+  test("supersedes a prior active task on the same (repo, source)", async () => {
+    const supersedeCalls: Array<{ oldId: string; newId: string }> = [];
+
+    const old = {
+      taskId: "task_old",
+      repo: { owner: "octo", name: "repo" },
+      source: { kind: "issue" as const, number: 100 },
+      instructionId: "issue-implement",
+      tool: "claude",
+      status: "queued" as const,
+      priority: "normal" as const,
+      requestedBy: "alice",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    };
+
+    const service = new EnqueueService({
+      queueStore: {
+        enqueue: async (input) => ({
+          taskId: "task_new",
+          repo: input.repo,
+          source: input.source,
+          instructionId: input.instructionId,
+          tool: input.tool,
+          status: "queued",
+          priority: "normal",
+          requestedBy: input.requestedBy,
+          createdAt: "2026-04-30T01:00:00.000Z",
+        }),
+        listTasks: async () => [],
+        getTask: async () => undefined,
+        startTask: async () => {
+          throw new Error("should not be called");
+        },
+        completeTask: async () => {
+          throw new Error("should not be called");
+        },
+        revertToQueued: async () => {
+          throw new Error("should not be called");
+        },
+        findActiveBySource: async () => [old],
+        markSuperseded: async (oldId, newId) => {
+          supersedeCalls.push({ oldId, newId });
+          return { ...old, status: "superseded", supersededBy: newId };
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+    });
+
+    const newTask = await service.enqueue({
+      repo: { owner: "octo", name: "repo" },
+      source: { kind: "issue", number: 100 },
+      instructionId: "issue-implement",
+      tool: "claude",
+      requestedBy: "alice",
+    });
+
+    assert.equal(newTask.taskId, "task_new");
+    assert.deepEqual(supersedeCalls, [
+      { oldId: "task_old", newId: "task_new" },
+    ]);
   });
 });

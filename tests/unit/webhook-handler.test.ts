@@ -50,10 +50,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
   let nextCommentId = 1000;
 
   const dispatcher = new EventDispatcher({
-    agentRegistry: {
-      has: (name: string) => name === "claude",
-      getDefaultAgent: () => "claude",
-    },
+    resolveStrategyTool: () => "claude",
     botUserId,
     allowedSenderIds: new Set([1, 100, 200]),
   });
@@ -70,7 +67,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          agent: input.agent,
+          tool: input.tool,
           status: "queued" as const,
           priority: "normal" as const,
           requestedBy: input.requestedBy,
@@ -168,7 +165,7 @@ describe("WebhookHandler", () => {
     assert.equal(harness.enqueued.length, 1);
   });
 
-  test("ignores events from our own bot (sender filter)", async () => {
+  test("issue.opened from our own bot still enqueues - bot self-loop check is bypassed for opens", async () => {
     const harness = buildHarness();
     const payload = {
       ...repoBlock,
@@ -181,6 +178,27 @@ describe("WebhookHandler", () => {
     const result = await harness.handler.handle(
       body,
       signedHeaders(body, "issues", "delivery-bot"),
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(harness.enqueued.length, 1);
+    assert.equal(harness.enqueued[0]?.instructionId, "issue-initial-review");
+  });
+
+  test("issue_comment from our own bot is still ignored (self-loop guard remains for comments)", async () => {
+    const harness = buildHarness();
+    const payload = {
+      ...repoBlock,
+      action: "created",
+      issue: { number: 1 },
+      comment: { id: 1, body: "/omgr" },
+      sender: { id: botUserId, login: "our-bot[bot]", type: "Bot" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    const result = await harness.handler.handle(
+      body,
+      signedHeaders(body, "issue_comment", "delivery-bot-comment"),
     );
 
     assert.equal(result.status, 200);
@@ -204,10 +222,10 @@ describe("WebhookHandler", () => {
 
     assert.equal(harness.enqueued.length, 1);
     assert.equal(harness.enqueued[0]?.instructionId, "issue-initial-review");
-    assert.equal(harness.enqueued[0]?.agent, "claude");
+    assert.equal(harness.enqueued[0]?.tool, "claude");
   });
 
-  test("posts a rejection comment for fork PR /claude implement", async () => {
+  test("posts a rejection comment for fork PR /omgr implement", async () => {
     const harness = buildHarness({
       getPullRequestStateImpl: async (_repo, number) => ({
         number,
@@ -221,7 +239,7 @@ describe("WebhookHandler", () => {
       ...repoBlock,
       action: "created",
       issue: { number: 52, pull_request: {} },
-      comment: { id: 555, body: "/claude implement" },
+      comment: { id: 555, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     };
     const body = Buffer.from(JSON.stringify(payload));
@@ -262,7 +280,7 @@ describe("WebhookHandler", () => {
     assert.equal(harness.enqueued.length, 0);
   });
 
-  test("posts a sticky comment with the task id and adds 👀 reaction on issues.opened", async () => {
+  test("posts a sticky comment with the task id and adds ?? reaction on issues.opened", async () => {
     const harness = buildHarness({
       generateTaskId: () => "task_fixed_123",
     });
@@ -309,7 +327,7 @@ describe("WebhookHandler", () => {
     });
   });
 
-  test("posts a sticky comment and reacts to the comment on /claude", async () => {
+  test("posts a sticky comment and reacts to the comment on /omgr", async () => {
     const harness = buildHarness({
       generateTaskId: () => "task_fixed_456",
     });
@@ -317,7 +335,7 @@ describe("WebhookHandler", () => {
       ...repoBlock,
       action: "created",
       issue: { number: 12 },
-      comment: { id: 9001, body: "/claude" },
+      comment: { id: 9001, body: "/omgr" },
       sender: { id: 100, login: "alice" },
     };
     const body = Buffer.from(JSON.stringify(payload));
@@ -355,7 +373,7 @@ describe("WebhookHandler", () => {
       ...repoBlock,
       action: "created",
       issue: { number: 52, pull_request: {} },
-      comment: { id: 7777, body: "/claude implement" },
+      comment: { id: 7777, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     };
     const body = Buffer.from(JSON.stringify(payload));
@@ -388,10 +406,7 @@ describe("WebhookHandler", () => {
   test("enqueue still proceeds when reaction API throws", async () => {
     const enqueued: QueueTaskInput[] = [];
     const dispatcher = new EventDispatcher({
-      agentRegistry: {
-        has: (name: string) => name === "claude",
-        getDefaultAgent: () => "claude",
-      },
+      resolveStrategyTool: () => "claude",
       botUserId,
       allowedSenderIds: new Set([100]),
     });
@@ -407,7 +422,7 @@ describe("WebhookHandler", () => {
             repo: input.repo,
             source: input.source,
             instructionId: input.instructionId,
-            agent: input.agent,
+            tool: input.tool,
             status: "queued" as const,
             priority: "normal" as const,
             requestedBy: input.requestedBy,

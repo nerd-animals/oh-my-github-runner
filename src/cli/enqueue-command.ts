@@ -1,5 +1,4 @@
 import path from "node:path";
-import { FileInstructionLoader } from "../infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "../infra/queue/file-queue-store.js";
 import { EnqueueService } from "../services/enqueue-service.js";
 
@@ -9,15 +8,12 @@ export interface EnqueueCommandInput {
   sourceKind: "issue" | "pull_request";
   sourceNumber: number;
   instructionId: string;
-  agent: string;
+  tool: string;
 }
 
 export async function runEnqueueCommand(input: EnqueueCommandInput) {
   const workspaceRoot = process.cwd();
   const service = new EnqueueService({
-    instructionLoader: new FileInstructionLoader(
-      path.join(workspaceRoot, "definitions", "instructions"),
-    ),
     queueStore: new FileQueueStore({
       dataDir: path.join(workspaceRoot, "var", "queue"),
     }),
@@ -33,7 +29,7 @@ export async function runEnqueueCommand(input: EnqueueCommandInput) {
       number: input.sourceNumber,
     },
     instructionId: input.instructionId,
-    agent: input.agent,
+    tool: input.tool,
     requestedBy: "cli",
   });
 }

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, test } from "node:test";
 import { GitWorkspaceManager } from "../../src/infra/workspaces/git-workspace-manager.js";
 import type { ProcessRunner } from "../../src/domain/ports/process-runner.js";
@@ -111,5 +114,45 @@ describe("GitWorkspaceManager.pushBranch", () => {
         return true;
       },
     );
+  });
+});
+
+describe("GitWorkspaceManager.cleanupOrphanWorkspaces", () => {
+  test("removes only directories whose name is not in the active set", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ws-orphan-"));
+    const workspacesDir = join(root, "workspaces");
+    try {
+      await mkdir(join(workspacesDir, "task_alive"), { recursive: true });
+      await mkdir(join(workspacesDir, "task_orphan_a"), { recursive: true });
+      await mkdir(join(workspacesDir, "task_orphan_b"), { recursive: true });
+
+      const { runner } = makeRunner({});
+      const manager = new GitWorkspaceManager({
+        reposDir: join(root, "repos"),
+        workspacesDir,
+        processRunner: runner,
+      });
+
+      const removed = await manager.cleanupOrphanWorkspaces(
+        new Set(["task_alive"]),
+      );
+
+      assert.equal(removed, 2);
+      assert.deepEqual((await readdir(workspacesDir)).sort(), ["task_alive"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("returns 0 when the workspaces dir does not exist", async () => {
+    const { runner } = makeRunner({});
+    const manager = new GitWorkspaceManager({
+      reposDir: "/nonexistent/repos",
+      workspacesDir: "/nonexistent/workspaces-does-not-exist",
+      processRunner: runner,
+    });
+
+    const removed = await manager.cleanupOrphanWorkspaces(new Set());
+    assert.equal(removed, 0);
   });
 });

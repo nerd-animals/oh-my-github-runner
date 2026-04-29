@@ -25,9 +25,9 @@ export class RateLimitStateStore {
     const active = new Map<string, number>();
     let mutated = false;
 
-    for (const [agent, pausedUntil] of Object.entries(state.pauses)) {
+    for (const [tool, pausedUntil] of Object.entries(state.pauses)) {
       if (pausedUntil > now) {
-        active.set(agent, pausedUntil);
+        active.set(tool, pausedUntil);
       } else {
         mutated = true;
       }
@@ -40,9 +40,9 @@ export class RateLimitStateStore {
     return active;
   }
 
-  async pause(agent: string, pausedUntil: number): Promise<void> {
+  async pause(tool: string, pausedUntil: number): Promise<void> {
     const state = await this.readState();
-    state.pauses[agent] = pausedUntil;
+    state.pauses[tool] = pausedUntil;
     await this.writeState(state);
   }
 

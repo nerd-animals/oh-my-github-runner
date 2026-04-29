@@ -38,8 +38,7 @@ export interface TaskRecord {
   repo: RepoRef;
   source: SourceRef;
   instructionId: string;
-  instructionRevision?: number;
-  agent: string;
+  tool: string;
   additionalInstructions?: string;
   status: TaskStatus;
   priority: TaskPriority;
@@ -48,6 +47,8 @@ export interface TaskRecord {
   startedAt?: string;
   finishedAt?: string;
   errorSummary?: string;
+  /** Set when status === "superseded" to point at the replacing task. */
+  supersededBy?: string;
   notifications?: TaskNotifications;
   /** @deprecated read-only legacy fallback; new records use `notifications.sticky`. */
   stickyComment?: StickyCommentRef;

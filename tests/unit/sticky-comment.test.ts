@@ -7,6 +7,7 @@ import {
   renderQueued,
   renderRateLimited,
   renderRejection,
+  renderSuperseded,
   stickyCommentMarker,
   type StickyCommentMeta,
 } from "../../src/services/sticky-comment.js";
@@ -14,7 +15,7 @@ import {
 const meta: StickyCommentMeta = {
   taskId: "task_abc_123",
   instructionId: "issue-initial-review",
-  agent: "claude",
+  tool: "claude",
   requestedBy: "alice",
   trigger: { kind: "issue", issueNumber: 7 },
 };
@@ -24,7 +25,7 @@ const task: TaskRecord = {
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 7 },
   instructionId: "issue-initial-review",
-  agent: "claude",
+  tool: "claude",
   status: "running",
   priority: "normal",
   requestedBy: "alice",
@@ -57,12 +58,30 @@ describe("sticky-comment renderers", () => {
   test("renderRejection uses the rejection marker", () => {
     const body = renderRejection(
       "PR is from a fork",
-      "Cannot run `/claude implement`: PRs from forks are not supported in v1.",
+      "Cannot run `/omgr implement`: PRs from forks are not supported in v1.",
       { requestedBy: "alice", trigger: { kind: "comment", issueNumber: 52, commentId: 1 } },
     );
     assert.ok(body.includes(REJECTION_MARKER));
     assert.match(body, /Trigger rejected/);
     assert.match(body, /PR is from a fork/);
     assert.match(body, /forks are not supported/);
+  });
+
+  test("renderSuperseded names the replacing task and keeps the original sticky marker", () => {
+    const task: TaskRecord = {
+      taskId: "task_old",
+      repo: { owner: "octo", name: "repo" },
+      source: { kind: "issue", number: 7 },
+      instructionId: "issue-comment-reply",
+      tool: "claude",
+      status: "superseded",
+      priority: "normal",
+      requestedBy: "alice",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    };
+    const body = renderSuperseded(task, "task_new");
+    assert.ok(body.startsWith(stickyCommentMarker("task_old")));
+    assert.match(body, /superseded/i);
+    assert.match(body, /task_new/);
   });
 });

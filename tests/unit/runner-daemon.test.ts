@@ -1,31 +1,8 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
-
-const instruction: InstructionDefinition = {
-  id: "issue-comment-reply",
-  revision: 1,
-  sourceKind: "issue",
-  mode: "observe",
-  workflow: "observe",
-  persona: "architecture",
-  context: {},
-  permissions: {
-    codeRead: true,
-    codeWrite: false,
-    gitPush: false,
-    prCreate: false,
-    prUpdate: false,
-    commentWrite: true,
-  },
-  githubActions: ["issue_comment"],
-  execution: {
-    timeoutSec: 1800,
-  },
-};
 
 function createTask(status: TaskRecord["status"]): TaskRecord {
   return {
@@ -33,7 +10,7 @@ function createTask(status: TaskRecord["status"]): TaskRecord {
     repo: { owner: "octo", name: "repo" },
     source: { kind: "issue", number: 100 },
     instructionId: "issue-comment-reply",
-    agent: "claude",
+    tool: "claude",
     status,
     priority: "normal",
     requestedBy: "test",
@@ -51,12 +28,11 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (taskId, instructionRevision) => {
-          calls.push(`start:${taskId}:${instructionRevision}`);
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-24T00:01:00.000Z",
           };
           return currentTask;
@@ -77,20 +53,19 @@ describe("RunnerDaemon", () => {
           calls.push(`revert:${taskId}`);
           return currentTask;
         },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async (message) => {
           calls.push(`recover:${message}`);
         },
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          calls.push("execute");
-          return { status: "succeeded" };
-        },
+      runStrategy: async () => {
+        calls.push("execute");
+        return { status: "succeeded" };
       },
       logStore: {
         write: async () => {},
@@ -108,28 +83,27 @@ describe("RunnerDaemon", () => {
     assert.deepEqual(calls, [
       "recover:daemon interrupted before completion",
       "cleanupLogs",
-      "start:task_1:1",
+      "start:task_1",
       "execute",
       "complete:task_1:succeeded",
     ]);
   });
 
-  test("reverts to queued and pauses the agent when execution returns a rate_limited result", async () => {
+  test("reverts to queued and pauses the tool when execution returns a rate_limited result", async () => {
     const calls: string[] = [];
     let currentTask = createTask("queued");
-    const pauses: Array<{ agent: string; pausedUntil: number }> = [];
+    const pauses: Array<{ tool: string; pausedUntil: number }> = [];
 
     const daemon = new RunnerDaemon({
       queueStore: {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (taskId, instructionRevision) => {
-          calls.push(`start:${taskId}:${instructionRevision}`);
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-26T00:01:00.000Z",
           };
           return currentTask;
@@ -141,18 +115,17 @@ describe("RunnerDaemon", () => {
           calls.push(`revert:${taskId}`);
           return currentTask;
         },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          calls.push("execute");
-          return { status: "rate_limited", agentName: "claude" };
-        },
+      runStrategy: async () => {
+        calls.push("execute");
+        return { status: "rate_limited", toolName: "claude" };
       },
       logStore: {
         write: async (taskId, message) => {
@@ -163,8 +136,8 @@ describe("RunnerDaemon", () => {
       pollIntervalMs: 10,
       rateLimitStateStore: {
         loadActivePauses: async () => new Map(),
-        pause: async (agent, pausedUntil) => {
-          pauses.push({ agent, pausedUntil });
+        pause: async (tool, pausedUntil) => {
+          pauses.push({ tool, pausedUntil });
         },
       },
       rateLimitCooldownMs: 60_000,
@@ -175,7 +148,7 @@ describe("RunnerDaemon", () => {
     await daemon.waitForIdle();
 
     assert.deepEqual(pauses, [
-      { agent: "claude", pausedUntil: 5_060_000 },
+      { tool: "claude", pausedUntil: 5_060_000 },
     ]);
     assert.ok(calls.includes("revert:task_1"));
     assert.ok(calls.some((c) => c.startsWith("log:task_1:rate-limited")));
@@ -190,11 +163,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -210,17 +182,16 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          throw new Error("getSourceContext network failure");
-        },
+      runStrategy: async () => {
+        throw new Error("getSourceContext network failure");
       },
       logStore: {
         write: async () => {},
@@ -249,11 +220,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -262,16 +232,15 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({ status: "rate_limited", agentName: "claude" }),
-      },
+      runStrategy: async () => ({ status: "rate_limited", toolName: "claude" }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -297,11 +266,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -317,19 +285,18 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({
-          status: "failed",
-          errorSummary: "boom",
-        }),
-      },
+      runStrategy: async () => ({
+        status: "failed",
+        errorSummary: "boom",
+      }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -360,11 +327,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -377,16 +343,15 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({ status: "succeeded" }),
-      },
+      runStrategy: async () => ({ status: "succeeded" }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -403,7 +368,7 @@ describe("RunnerDaemon", () => {
     assert.deepEqual(notifiedSucceeded, ["task_1"]);
   });
 
-  test("calls notifyTaskRateLimited before pausing the agent", async () => {
+  test("calls notifyTaskRateLimited before pausing the tool", async () => {
     const notifiedRateLimited: string[] = [];
     let currentTask = createTask("queued");
 
@@ -412,11 +377,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -425,19 +389,18 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({
-          status: "rate_limited",
-          agentName: "claude",
-        }),
-      },
+      runStrategy: async () => ({
+        status: "rate_limited",
+        toolName: "claude",
+      }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -452,5 +415,95 @@ describe("RunnerDaemon", () => {
     await daemon.waitForIdle();
 
     assert.deepEqual(notifiedRateLimited, ["task_1"]);
+  });
+
+  test("supersede aborts a running task and persists supersededBy without notifying failure", async () => {
+    const calls: string[] = [];
+    let currentTask = createTask("queued");
+    const supersededNotifications: Array<{
+      taskId: string;
+      supersededBy: string;
+    }> = [];
+
+    let resolveStrategy: ((value: { status: "failed"; errorSummary: string }) => void) | undefined;
+    const strategyPromise = new Promise<{ status: "failed"; errorSummary: string }>(
+      (resolve) => {
+        resolveStrategy = resolve;
+      },
+    );
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-30T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          calls.push("complete");
+          throw new Error("completeTask should not run for superseded tasks");
+        },
+        revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async (taskId, supersededBy) => {
+          calls.push(`markSuperseded:${taskId}:${supersededBy}`);
+          currentTask = {
+            ...currentTask,
+            status: "superseded",
+            supersededBy,
+            finishedAt: "2026-04-30T00:02:00.000Z",
+          };
+          return currentTask;
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      runStrategy: async (_task, signal) => {
+        signal.addEventListener("abort", () => {
+          resolveStrategy?.({
+            status: "failed",
+            errorSummary: "aborted",
+          });
+        });
+        return strategyPromise;
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskFailure: async () => {
+        calls.push("notifyFailure");
+      },
+      notifyTaskSuperseded: async (task, supersededBy) => {
+        supersededNotifications.push({ taskId: task.taskId, supersededBy });
+      },
+    });
+
+    await daemon.tick();
+    // Task is now running; trigger supersede.
+    await daemon.supersede("task_1", "task_2");
+    await daemon.waitForIdle();
+
+    assert.deepEqual(supersededNotifications, [
+      { taskId: "task_1", supersededBy: "task_2" },
+    ]);
+    assert.ok(
+      calls.includes("markSuperseded:task_1:task_2"),
+      `expected markSuperseded call, got: ${calls.join(", ")}`,
+    );
+    assert.equal(
+      calls.includes("notifyFailure"),
+      false,
+      "supersede must not trigger the failure notifier",
+    );
   });
 });

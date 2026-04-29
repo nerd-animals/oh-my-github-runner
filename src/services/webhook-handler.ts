@@ -165,7 +165,7 @@ export class WebhookHandler {
   ): void {
     if (action.kind === "enqueue") {
       console.log(
-        `[webhook] enqueue delivery=${deliveryId} event=${eventName} instruction=${action.instructionId} agent=${action.agent} repo=${action.repo.owner}/${action.repo.name} ${action.source.kind}=${action.source.number} requestedBy=${action.requestedBy}`,
+        `[webhook] enqueue delivery=${deliveryId} event=${eventName} instruction=${action.instructionId} tool=${action.tool} repo=${action.repo.owner}/${action.repo.name} ${action.source.kind}=${action.source.number} requestedBy=${action.requestedBy}`,
       );
       return;
     }
@@ -330,7 +330,7 @@ export class WebhookHandler {
     const meta: StickyCommentMeta = {
       taskId,
       instructionId: action.instructionId,
-      agent: action.agent,
+      tool: action.tool,
       requestedBy: action.requestedBy,
       trigger: action.trigger,
     };
@@ -377,7 +377,7 @@ export class WebhookHandler {
         repo: action.repo,
         source: action.source,
         instructionId: action.instructionId,
-        agent: action.agent,
+        tool: action.tool,
         requestedBy: action.requestedBy,
         ...(notifications.sticky !== undefined ||
         notifications.trigger !== undefined

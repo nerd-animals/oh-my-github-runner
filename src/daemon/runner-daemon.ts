@@ -1,22 +1,25 @@
-import type { InstructionDefinition } from "../domain/instruction.js";
-import type { InstructionLoader } from "../domain/ports/instruction-loader.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { RateLimitStateStore } from "../infra/queue/rate-limit-state-store.js";
-import type { ExecuteTaskResult, ExecutionService } from "../services/execution-service.js";
 import type { SchedulerService } from "../services/scheduler-service.js";
+import type { ExecuteResult } from "../strategies/types.js";
 
 export interface RunnerDaemonDependencies {
   queueStore: QueueStore;
-  instructionLoader: InstructionLoader;
   schedulerService: SchedulerService;
-  executionService: Pick<ExecutionService, "execute">;
+  // Runs a task to completion. The daemon owns when to call this; the
+  // composition root supplies the implementation (typically `getStrategy(...)
+  // .run(task, toolkitFactory.create(task), signal)`). Tests inject a stub.
+  runStrategy: (
+    task: TaskRecord,
+    signal: AbortSignal,
+  ) => Promise<ExecuteResult>;
   logStore: LogStore;
   pollIntervalMs: number;
   rateLimitStateStore?: Pick<RateLimitStateStore, "loadActivePauses" | "pause">;
   rateLimitCooldownMs?: number;
-  registeredAgents?: readonly string[];
+  registeredTools?: readonly string[];
   idleWarningIntervalMs?: number;
   retentionMs?: number;
   pruneIntervalMs?: number;
@@ -28,6 +31,19 @@ export interface RunnerDaemonDependencies {
   ) => Promise<void>;
   notifyTaskSucceeded?: (task: TaskRecord) => Promise<void>;
   notifyTaskRateLimited?: (task: TaskRecord) => Promise<void>;
+  notifyTaskSuperseded?: (
+    task: TaskRecord,
+    supersededBy: string,
+  ) => Promise<void>;
+  /**
+   * Optional janitor that runs once at startup. Receives the set of
+   * taskIds that are still tracked in the queue (queued + running) and
+   * removes any on-disk workspace directories not in that set — i.e.
+   * leftover state from a process crash mid-run.
+   */
+  cleanupOrphanWorkspaces?: (
+    activeTaskIds: ReadonlySet<string>,
+  ) => Promise<number>;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -35,8 +51,15 @@ const DEFAULT_IDLE_WARNING_INTERVAL_MS = 60 * 1000;
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+interface ActiveTask {
+  promise: Promise<void>;
+  abort: AbortController;
+  /** Task id of the request that superseded this one, if any. */
+  supersededBy: string | null;
+}
+
 export class RunnerDaemon {
-  private readonly activeTasks = new Map<string, Promise<void>>();
+  private readonly activeTasks = new Map<string, ActiveTask>();
   private readonly rateLimitCooldownMs: number;
   private readonly idleWarningIntervalMs: number;
   private readonly retentionMs: number;
@@ -62,6 +85,30 @@ export class RunnerDaemon {
     await this.dependencies.queueStore.recoverRunningTasks(
       "daemon interrupted before completion",
     );
+    if (this.dependencies.cleanupOrphanWorkspaces !== undefined) {
+      try {
+        const tasks = await this.dependencies.queueStore.listTasks();
+        const active = new Set(
+          tasks
+            .filter(
+              (task) => task.status === "queued" || task.status === "running",
+            )
+            .map((task) => task.taskId),
+        );
+        const removed = await this.dependencies.cleanupOrphanWorkspaces(active);
+        if (removed > 0) {
+          console.log(
+            `[daemon] cleanupOrphanWorkspaces removed ${removed} orphan workspace dir(s)`,
+          );
+        }
+      } catch (error) {
+        this.warn(
+          `[daemon] cleanupOrphanWorkspaces threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
     await this.dependencies.logStore.cleanupExpired();
     await this.maybePrune(true);
   }
@@ -69,16 +116,14 @@ export class RunnerDaemon {
   async tick(): Promise<void> {
     await this.maybePrune(false);
     const tasks = await this.dependencies.queueStore.listTasks();
-    const instructionsById = await this.loadInstructions(tasks);
-    const pausedAgents = await this.loadPausedAgents();
+    const pausedTools = await this.loadPausedTools();
     const nextTaskIds = this.dependencies.schedulerService.selectNextTasks({
       tasks,
-      instructionsById,
-      pausedAgents,
+      pausedTools,
     });
 
     if (nextTaskIds.length === 0) {
-      this.maybeWarnAllAgentsPaused(tasks, pausedAgents);
+      this.maybeWarnAllToolsPaused(tasks, pausedTools);
     }
 
     for (const taskId of nextTaskIds) {
@@ -88,31 +133,70 @@ export class RunnerDaemon {
         continue;
       }
 
-      const instruction = instructionsById[task.instructionId];
-
-      if (instruction === undefined) {
-        continue;
-      }
-
       const startedTask = await this.dependencies.queueStore.startTask(
         task.taskId,
-        instruction.revision,
       );
 
       console.log(
-        `[daemon] start task=${task.taskId} instruction=${instruction.id} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
+        `[daemon] start task=${task.taskId} instruction=${task.instructionId} tool=${task.tool} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
       );
 
-      const activeTask = this.runTask(startedTask, instruction).finally(() => {
+      const abort = new AbortController();
+      const active: ActiveTask = {
+        promise: Promise.resolve(),
+        abort,
+        supersededBy: null,
+      };
+      active.promise = this.runTask(startedTask, active).finally(() => {
         this.activeTasks.delete(task.taskId);
       });
+      this.activeTasks.set(task.taskId, active);
+    }
+  }
 
-      this.activeTasks.set(task.taskId, activeTask);
+  /**
+   * Supersede a queued- or running-status task. If the task is currently
+   * running, its AbortSignal is fired so the strategy can unwind cleanly;
+   * the queue record is then moved to "superseded" with `supersededBy` set.
+   * No-op if the task isn't active anymore (already completed, etc).
+   */
+  async supersede(oldTaskId: string, newTaskId: string): Promise<void> {
+    const active = this.activeTasks.get(oldTaskId);
+    if (active !== undefined) {
+      active.supersededBy = newTaskId;
+      active.abort.abort();
+      // Persist the supersede status now so observers see it immediately;
+      // runTask will skip its own completeTask call when supersededBy is set.
+      try {
+        await this.dependencies.queueStore.markSuperseded(
+          oldTaskId,
+          newTaskId,
+        );
+      } catch (error) {
+        this.warn(
+          `[daemon] markSuperseded(running) threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      return;
+    }
+    // Not running on this daemon — just persist the supersede status.
+    try {
+      await this.dependencies.queueStore.markSuperseded(oldTaskId, newTaskId);
+    } catch (error) {
+      this.warn(
+        `[daemon] markSuperseded(queued) threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
   async waitForIdle(): Promise<void> {
-    await Promise.all(this.activeTasks.values());
+    await Promise.all(
+      Array.from(this.activeTasks.values()).map((entry) => entry.promise),
+    );
   }
 
   async start(signal?: AbortSignal): Promise<void> {
@@ -150,7 +234,7 @@ export class RunnerDaemon {
     }
   }
 
-  private async loadPausedAgents(): Promise<ReadonlySet<string>> {
+  private async loadPausedTools(): Promise<ReadonlySet<string>> {
     if (this.dependencies.rateLimitStateStore === undefined) {
       return new Set();
     }
@@ -159,17 +243,17 @@ export class RunnerDaemon {
     return new Set(active.keys());
   }
 
-  private maybeWarnAllAgentsPaused(
+  private maybeWarnAllToolsPaused(
     tasks: TaskRecord[],
-    pausedAgents: ReadonlySet<string>,
+    pausedTools: ReadonlySet<string>,
   ): void {
-    const registered = this.dependencies.registeredAgents ?? [];
+    const registered = this.dependencies.registeredTools ?? [];
 
     if (registered.length === 0) {
       return;
     }
 
-    if (!registered.every((agent) => pausedAgents.has(agent))) {
+    if (!registered.every((tool) => pausedTools.has(tool))) {
       return;
     }
 
@@ -185,21 +269,18 @@ export class RunnerDaemon {
 
     this.lastIdleWarningAt = now;
     this.warn(
-      `All registered agents are rate-limited (${registered.join(", ")}); queued tasks are blocked until pauses expire.`,
+      `All registered tools are rate-limited (${registered.join(", ")}); queued tasks are blocked until pauses expire.`,
     );
   }
 
   private async runTask(
     task: TaskRecord,
-    instruction: InstructionDefinition,
+    active: ActiveTask,
   ): Promise<void> {
-    let result: ExecuteTaskResult;
+    let result: ExecuteResult;
 
     try {
-      result = await this.dependencies.executionService.execute({
-        task,
-        instruction,
-      });
+      result = await this.dependencies.runStrategy(task, active.abort.signal);
     } catch (error) {
       result = {
         status: "failed",
@@ -208,8 +289,34 @@ export class RunnerDaemon {
       };
     }
 
+    // If supersede fired while the run was in flight, the queue record
+    // has already been moved to "superseded" by daemon.supersede(). Skip
+    // completeTask (which expects to find the task in "running") and skip
+    // notifyTaskFailure — the strategy crash here is the abort, not a real
+    // failure.
+    if (active.supersededBy !== null) {
+      console.log(
+        `[daemon] superseded task=${task.taskId} by=${active.supersededBy}`,
+      );
+      if (this.dependencies.notifyTaskSuperseded !== undefined) {
+        try {
+          await this.dependencies.notifyTaskSuperseded(
+            task,
+            active.supersededBy,
+          );
+        } catch (error) {
+          this.warn(
+            `[daemon] notifyTaskSuperseded threw: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+      return;
+    }
+
     if (result.status === "rate_limited") {
-      await this.handleRateLimit(task, result.agentName);
+      await this.handleRateLimit(task, result.toolName);
       return;
     }
 
@@ -253,7 +360,7 @@ export class RunnerDaemon {
 
   private async handleRateLimit(
     task: TaskRecord,
-    agentName: string,
+    toolName: string,
   ): Promise<void> {
     await this.dependencies.queueStore.revertToQueued(task.taskId);
 
@@ -272,39 +379,25 @@ export class RunnerDaemon {
     if (this.dependencies.rateLimitStateStore !== undefined) {
       const pausedUntil = this.now() + this.rateLimitCooldownMs;
       await this.dependencies.rateLimitStateStore.pause(
-        agentName,
+        toolName,
         pausedUntil,
       );
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${agentName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+        `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
-        `rate-limited; paused agent '${agentName}' until ${new Date(pausedUntil).toISOString()}`,
+        `rate-limited; paused tool '${toolName}' until ${new Date(pausedUntil).toISOString()}`,
       );
     } else {
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${agentName} (no state store)`,
+        `[daemon] rate-limited task=${task.taskId} tool=${toolName} (no state store)`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
         `rate-limited; reverted to queued (no state store configured)`,
       );
     }
-  }
-
-  private async loadInstructions(
-    tasks: TaskRecord[],
-  ): Promise<Record<string, InstructionDefinition>> {
-    const instructionIds = [...new Set(tasks.map((task) => task.instructionId))];
-    const entries = await Promise.all(
-      instructionIds.map(async (instructionId) => [
-        instructionId,
-        await this.dependencies.instructionLoader.loadById(instructionId),
-      ] as const),
-    );
-
-    return Object.fromEntries(entries);
   }
 
   private async sleep(ms: number, signal?: AbortSignal): Promise<void> {

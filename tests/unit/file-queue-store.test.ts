@@ -23,7 +23,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -38,43 +38,92 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("supersedes older queued tasks for the same source", async () => {
+  test("findActiveBySource returns queued and running tasks matching the source", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
       const store = new FileQueueStore({ dataDir: root });
-
-      const first = await store.enqueue({
-        repo: { owner: "octo", name: "repo" },
-        source: { kind: "issue", number: 100 },
-        instructionId: "issue-comment-reply",
-        agent: "claude",
-        requestedBy: "test",
-      });
-
-      const second = await store.enqueue({
+      const same = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
+        requestedBy: "test",
+      });
+      const different = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 200 },
+        instructionId: "issue-implement",
+        tool: "claude",
+        requestedBy: "test",
+      });
+      // Move `same` to running.
+      await store.startTask(same.taskId);
+
+      const matches = await store.findActiveBySource(
+        { owner: "octo", name: "repo" },
+        { kind: "issue", number: 100 },
+      );
+
+      assert.deepEqual(
+        matches.map((task) => task.taskId).sort(),
+        [same.taskId].sort(),
+      );
+      assert.notEqual(matches[0]?.taskId, different.taskId);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("markSuperseded moves a queued task into superseded with supersededBy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({ dataDir: root });
+      const old = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-implement",
+        tool: "claude",
         requestedBy: "test",
       });
 
-      const tasks = await store.listTasks();
-      const reloadedFirst = tasks.find((task) => task.taskId === first.taskId);
-      const reloadedSecond = tasks.find(
-        (task) => task.taskId === second.taskId,
-      );
+      const result = await store.markSuperseded(old.taskId, "task_new");
 
-      assert.equal(reloadedFirst?.status, "superseded");
-      assert.equal(reloadedSecond?.status, "queued");
+      assert.equal(result.status, "superseded");
+      assert.equal(result.supersededBy, "task_new");
+      assert.equal(typeof result.finishedAt, "string");
 
-      // Status is encoded by directory placement, not just by the field.
-      assert.deepEqual(await readdir(join(root, "queued")), [
-        `${second.taskId}.json`,
-      ]);
+      assert.deepEqual(await readdir(join(root, "queued")), []);
       assert.deepEqual(await readdir(join(root, "superseded")), [
-        `${first.taskId}.json`,
+        `${old.taskId}.json`,
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("markSuperseded works on a running task too", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({ dataDir: root });
+      const old = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-implement",
+        tool: "claude",
+        requestedBy: "test",
+      });
+      await store.startTask(old.taskId);
+
+      const result = await store.markSuperseded(old.taskId, "task_new");
+
+      assert.equal(result.status, "superseded");
+      assert.equal(result.supersededBy, "task_new");
+      assert.deepEqual(await readdir(join(root, "running")), []);
+      assert.deepEqual(await readdir(join(root, "superseded")), [
+        `${old.taskId}.json`,
       ]);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -93,21 +142,21 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 1 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       const b = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 2 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       const c = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 3 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -131,11 +180,11 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       assert.deepEqual(await readdir(join(root, "running")), [
         `${task.taskId}.json`,
       ]);
@@ -145,7 +194,6 @@ describe("FileQueueStore", () => {
 
       const reloadedTask = await store.getTask(task.taskId);
       assert.equal(reloadedTask?.status, "succeeded");
-      assert.equal(reloadedTask?.instructionRevision, 1);
       assert.equal(typeof reloadedTask?.startedAt, "string");
       assert.equal(typeof reloadedTask?.finishedAt, "string");
 
@@ -158,7 +206,7 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("revertToQueued resets a running task back to queued and clears revision", async () => {
+  test("revertToQueued resets a running task back to queued", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
@@ -167,15 +215,14 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       const reverted = await store.revertToQueued(task.taskId);
 
       assert.equal(reverted.status, "queued");
-      assert.equal(reverted.instructionRevision, undefined);
       assert.equal(reverted.startedAt, undefined);
       assert.equal(reverted.finishedAt, undefined);
       assert.equal(reverted.errorSummary, undefined);
@@ -193,7 +240,6 @@ describe("FileQueueStore", () => {
       const onDisk = JSON.parse(
         await readFile(join(root, "queued", `${task.taskId}.json`), "utf8"),
       );
-      assert.equal("instructionRevision" in onDisk, false);
       assert.equal("startedAt" in onDisk, false);
       assert.equal("finishedAt" in onDisk, false);
       assert.equal("errorSummary" in onDisk, false);
@@ -211,11 +257,11 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       await store.recoverRunningTasks("daemon interrupted before completion");
 
       const reloadedTask = await store.getTask(task.taskId);
@@ -246,20 +292,20 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 1 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
-      await store.startTask(oldDone.taskId, 1);
+      await store.startTask(oldDone.taskId);
       await store.completeTask(oldDone.taskId, { status: "succeeded" });
 
       const oldFailed = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 2 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
-      await store.startTask(oldFailed.taskId, 1);
+      await store.startTask(oldFailed.taskId);
       await store.completeTask(oldFailed.taskId, {
         status: "failed",
         errorSummary: "boom",
@@ -283,17 +329,17 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 3 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
-      await store.startTask(recentDone.taskId, 1);
+      await store.startTask(recentDone.taskId);
       await store.completeTask(recentDone.taskId, { status: "succeeded" });
 
       const stillQueued = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 4 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -326,7 +372,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 7 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         status: "queued",
         priority: "normal",
         requestedBy: "alice",
@@ -364,7 +410,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -384,7 +430,7 @@ describe("FileQueueStore", () => {
       };
 
       assert.equal(await countOccurrences(task.taskId), 1);
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       assert.equal(await countOccurrences(task.taskId), 1);
       await store.completeTask(task.taskId, { status: "succeeded" });
       assert.equal(await countOccurrences(task.taskId), 1);

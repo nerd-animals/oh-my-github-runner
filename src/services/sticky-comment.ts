@@ -4,7 +4,7 @@ import type { TriggerLocation } from "./event-dispatcher.js";
 export interface StickyCommentMeta {
   taskId: string;
   instructionId: string;
-  agent: string;
+  tool: string;
   requestedBy: string;
   trigger: TriggerLocation;
 }
@@ -32,7 +32,7 @@ function queuedMetaTable(meta: StickyCommentMeta): string {
     "| key | value |",
     "|---|---|",
     `| instruction | \`${meta.instructionId}\` |`,
-    `| agent | \`${meta.agent}\` |`,
+    `| tool | \`${meta.tool}\` |`,
     `| triggered by | @${meta.requestedBy} |`,
     `| trigger | ${describeTrigger(meta.trigger)} |`,
   ].join("\n");
@@ -43,7 +43,7 @@ function taskMetaTable(task: TaskRecord): string {
     "| key | value |",
     "|---|---|",
     `| instruction | \`${task.instructionId}\` |`,
-    `| agent | \`${task.agent}\` |`,
+    `| tool | \`${task.tool}\` |`,
     `| triggered by | @${task.requestedBy} |`,
     `| source | ${describeSource(task)} |`,
   ].join("\n");
@@ -82,7 +82,21 @@ export function renderRateLimited(task: TaskRecord): string {
     "",
     taskMetaTable(task),
     "",
-    "_Will resume automatically once the agent's rate limit clears._",
+    "_Will resume automatically once the tool's rate limit clears._",
+  ].join("\n");
+}
+
+export function renderSuperseded(
+  task: TaskRecord,
+  supersededBy: string,
+): string {
+  return [
+    stickyCommentMarker(task.taskId),
+    `🔁 **Task superseded** — \`${task.taskId}\``,
+    "",
+    taskMetaTable(task),
+    "",
+    `_Replaced by a newer trigger: \`${supersededBy}\`._`,
   ].join("\n");
 }
 

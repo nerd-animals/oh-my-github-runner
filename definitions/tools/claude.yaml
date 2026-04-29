@@ -1,0 +1,20 @@
+# Tool descriptor for the Claude Code CLI.
+#
+# args: passed to every invocation of the binary defined by CLAUDE_COMMAND.
+#       The deploy-specific binary path lives in env, but the argv pattern
+#       is a property of the tool itself, so it lives here.
+#
+# Rate-limit detection: the Claude Code CLI returns exit code 0 even when
+# it has hit a usage cap; the failure shows up either in plain stdout (when
+# invoked with -p alone) or as the "result" field of the JSON envelope
+# (when invoked with --output-format json). Both phrasings observed in
+# production:
+#   - "You've hit your org's monthly usage limit"
+#   - "You've hit your limit · resets 11:30am (UTC)"
+# Plus the JSON-mode escape hatch matching api_error_status=429.
+args: ["-p"]
+
+exit_codes: []
+stderr_patterns:
+  - "You've hit your.*limit"
+  - '"api_error_status":\s*429'

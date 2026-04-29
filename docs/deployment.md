@@ -86,8 +86,11 @@ the following are missing:
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY_PATH`
 - `GITHUB_WEBHOOK_SECRET`
-- `AGENTS` (comma-separated list, e.g. `claude`)
-- `<AGENT>_COMMAND` for each entry in `AGENTS`
+- `<TOOL>_COMMAND` (binary path) for each tool you want to enable. The
+  supported set is hardcoded in `loadToolConfigFromEnv`
+  (`src/services/tool-registry.ts`); the runner refuses to start if none
+  of them have a `_COMMAND` set. The argv passed to the binary lives in
+  `definitions/tools/<name>.yaml`, not env.
 - `ALLOWED_SENDER_IDS` (comma-separated GitHub user IDs allowed to trigger
   tasks via webhook; events from any other sender are dropped before
   enqueue. Look up an id with `gh api /users/<login> --jq .id`.)
@@ -101,7 +104,7 @@ the following are missing:
   `succeeded/`, `failed/`, `superseded/` are pruned by mtime; the daemon
   runs a sweep on boot and every 24h, retaining files for
   `RUNNER_QUEUE_RETENTION_DAYS` (default 7).
-- `var/queue/state.json` — per-agent rate-limit `pausedUntil`; deleting this
+- `var/queue/state.json` — per-tool rate-limit `pausedUntil`; deleting this
   file is the manual override to resume queued work immediately
 - `var/repos/<owner>/<name>/mirror.git` — bare mirror per repo (cached
   across tasks)
@@ -109,7 +112,7 @@ the following are missing:
   per task)
 - `var/logs/<task-id>.log` — per-task log line history
 - `~/.claude/projects/<encoded-cwd>/` — claude CLI transcript / subagent
-  logs / per-cwd memory dropped by the agent CLI itself. The runner
+  logs / per-cwd memory dropped by the tool CLI itself. The runner
   deletes the per-task directory in the same `finally` block that removes
   the workspace; `CLAUDE_HOME` overrides `~/.claude` for tests or alt
   layouts. Pre-existing accumulation can be one-shot cleaned with
@@ -216,9 +219,9 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   GitHub Actions workflow `timeout-minutes` (15) is the only outer bound;
   if the wait exceeds it, the SSH session is killed and the next push
   retries. `queued` tasks are unaffected — they survive the restart and
-  resume from the new code. Bumping an instruction `revision` in
-  `definitions/instructions/*.yaml` follows the same flow: in-flight
-  tasks finish on the old revision, new tasks pick up the new one.
+  resume from the new code. Strategy code changes follow the same flow:
+  in-flight tasks finish on the old strategy code (loaded into the running
+  process), new tasks pick up the new code after the daemon restarts.
 - Tweak retention for terminal tasks with `RUNNER_QUEUE_RETENTION_DAYS`
   (default 7). Files under `var/queue/{succeeded,failed,superseded}/` older
   than the cutoff are removed by the daemon at boot and every 24h.
@@ -246,7 +249,7 @@ to:
    webhook secret, and `.pem` private key.
 3. **Install the App** on every repo you want the runner to serve.
 4. **Provision the VM** (Ubuntu + Node 20 + git + cloudflared + the
-   agent CLI such as `claude`). Bring it up on your tailnet with
+   tool CLI such as `claude`). Bring it up on your tailnet with
    `tailscale up --ssh --advertise-tags=tag:server`.
 5. **Cloudflare tunnel + DNS** for `<your-runner-host>` per
    [`ops/cloudflared/config.example.yml`](../ops/cloudflared/config.example.yml).
@@ -254,7 +257,8 @@ to:
    [`.env.example`](../.env.example) with your `GITHUB_APP_ID`,
    `GITHUB_APP_PRIVATE_KEY_PATH`, `GITHUB_WEBHOOK_SECRET`,
    `ALLOWED_SENDER_IDS` (your GitHub user id — find it with
-   `gh api /users/<login> --jq .id`), and the agent command.
+   `gh api /users/<login> --jq .id`), and the per-tool command path
+   (`<TOOL>_COMMAND`).
 7. **Set repo Secrets** for the deploy workflow:
    - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
 8. **Update the SSH target** on

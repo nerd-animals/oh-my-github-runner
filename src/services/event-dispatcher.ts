@@ -5,7 +5,6 @@ import {
   resolveInstructionId,
   type RoutingRule,
 } from "../domain/rules/event-routing.js";
-import type { AgentRegistry } from "./agent-registry.js";
 
 export interface PullRequestState {
   number: number;
@@ -51,7 +50,7 @@ export type DispatchAction =
   | {
       kind: "enqueue";
       instructionId: string;
-      agent: string;
+      tool: string;
       repo: RepoRef;
       source: SourceRef;
       additionalInstructions?: string;
@@ -68,7 +67,8 @@ export type DispatchAction =
     };
 
 export interface EventDispatcherDependencies {
-  agentRegistry: Pick<AgentRegistry, "has" | "getDefaultAgent">;
+  /** Resolves the tool a given strategy declares in its policies. */
+  resolveStrategyTool: (instructionId: string) => string;
   botUserId: number;
   allowedSenderIds: ReadonlySet<number>;
   noAiLabel?: string;
@@ -87,15 +87,22 @@ export class EventDispatcher {
   }
 
   dispatch(event: DispatchedEvent): DispatchAction {
-    if (event.sender.id === this.deps.botUserId) {
-      return { kind: "ignore", reason: "sender is our app's bot" };
-    }
+    // issue_opened bypasses both gates so bot-authored issues and
+    // outside collaborators can still trigger an initial review. The
+    // `no-ai` label and absence of a routing rule remain the only
+    // ways to suppress an open. Comment events still go through the
+    // bot self-loop and allowlist checks.
+    if (event.kind !== "issue_opened") {
+      if (event.sender.id === this.deps.botUserId) {
+        return { kind: "ignore", reason: "sender is our app's bot" };
+      }
 
-    if (!this.deps.allowedSenderIds.has(event.sender.id)) {
-      return {
-        kind: "ignore",
-        reason: `sender id ${event.sender.id} (login=${event.sender.login}) not in allowlist`,
-      };
+      if (!this.deps.allowedSenderIds.has(event.sender.id)) {
+        return {
+          kind: "ignore",
+          reason: `sender id ${event.sender.id} (login=${event.sender.login}) not in allowlist`,
+        };
+      }
     }
 
     if (event.kind === "issue_opened") {
@@ -131,7 +138,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: this.deps.agentRegistry.getDefaultAgent(),
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -148,13 +155,6 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.agentRegistry.has(parsed.agent)) {
-      return {
-        kind: "ignore",
-        reason: `agent '${parsed.agent}' is not registered`,
-      };
-    }
-
     const instructionId = resolveInstructionId(this.routingRules, {
       eventKind: "issue_comment",
       verb: parsed.verb,
@@ -167,7 +167,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: parsed.agent,
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -189,13 +189,6 @@ export class EventDispatcher {
 
     if (parsed === null) {
       return { kind: "ignore", reason: "no command in comment" };
-    }
-
-    if (!this.deps.agentRegistry.has(parsed.agent)) {
-      return {
-        kind: "ignore",
-        reason: `agent '${parsed.agent}' is not registered`,
-      };
     }
 
     const trigger: TriggerLocation = {
@@ -228,7 +221,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: parsed.agent,
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
       requestedBy: event.sender.login,
@@ -251,7 +244,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: PRs from forks are not supported in v1.",
+          body: "Cannot run `/omgr implement`: PRs from forks are not supported in v1.",
         },
         trigger,
         requestedBy,
@@ -265,7 +258,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: this PR is already merged.",
+          body: "Cannot run `/omgr implement`: this PR is already merged.",
         },
         trigger,
         requestedBy,
@@ -279,7 +272,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: this PR is closed.",
+          body: "Cannot run `/omgr implement`: this PR is closed.",
         },
         trigger,
         requestedBy,
@@ -293,7 +286,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: head branch has been deleted.",
+          body: "Cannot run `/omgr implement`: head branch has been deleted.",
         },
         trigger,
         requestedBy,
