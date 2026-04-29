@@ -1,5 +1,5 @@
 import type { ToolRunInput, ToolRunResult } from "../../domain/tool.js";
-import type { ToolRateLimitConfig } from "./tool-rate-limit-config.js";
+import type { ToolRateLimitConfig } from "./tool-descriptor.js";
 import type { ToolRunner } from "../../domain/ports/tool-runner.js";
 
 export interface RateLimitDetectingToolRunnerOptions {

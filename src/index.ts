@@ -13,7 +13,7 @@ import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandToolRunner } from "./infra/tool/headless-command-tool-runner.js";
 import { createClaudeProjectsCleaner } from "./infra/tool/claude-projects-cleaner.js";
 import { RateLimitDetectingToolRunner } from "./infra/tool/rate-limit-detecting-tool-runner.js";
-import { loadToolRateLimitConfig } from "./infra/tool/tool-rate-limit-config.js";
+import { loadToolDescriptor } from "./infra/tool/tool-descriptor.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -138,13 +138,10 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   );
   const toolEntries = await Promise.all(
     toolConfig.tools.map(async (name) => {
-      const rateLimitConfig = await loadToolRateLimitConfig(
-        toolDefinitionsDir,
-        name,
-      );
+      const descriptor = await loadToolDescriptor(toolDefinitionsDir, name);
       const inner = new HeadlessCommandToolRunner({
-        command: toolConfig.commands[name]!.command,
-        args: toolConfig.commands[name]!.args,
+        command: toolConfig.commands[name]!,
+        args: [...descriptor.args],
         processRunner,
       });
 
@@ -153,7 +150,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
         runner: new RateLimitDetectingToolRunner({
           inner,
           toolName: name,
-          config: rateLimitConfig,
+          config: descriptor.rateLimit,
         }),
       };
     }),

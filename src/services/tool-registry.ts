@@ -37,21 +37,16 @@ export function normalizeToolName(name: string): string {
   return name.toUpperCase().replace(/-/g, "_");
 }
 
-export interface ToolCommandConfig {
-  command: string;
-  args: string[];
-}
-
 export interface ToolEnvConfig {
   tools: string[];
-  commands: Record<string, ToolCommandConfig>;
+  /** Per-tool binary path (the deploy-specific bit). The argv list comes from
+   *  the tool's yaml descriptor under `definitions/tools/`, not env. */
+  commands: Record<string, string>;
 }
 
-// NB: env-var names (AGENTS / <NAME>_COMMAND / <NAME>_ARGS_JSON) are still the
-// pre-rename names — operator-visible env rename stays as a separate follow-up.
-export function loadToolConfigFromEnv(
-  env: NodeJS.ProcessEnv,
-): ToolEnvConfig {
+// NB: AGENTS / <NAME>_COMMAND env-var names are still the pre-rename names —
+// operator-visible env rename stays as a separate follow-up.
+export function loadToolConfigFromEnv(env: NodeJS.ProcessEnv): ToolEnvConfig {
   const toolsEnv = env.AGENTS;
 
   if (toolsEnv === undefined || toolsEnv.length === 0) {
@@ -67,7 +62,7 @@ export function loadToolConfigFromEnv(
     throw new Error("AGENTS must contain at least one tool name");
   }
 
-  const commands: Record<string, ToolCommandConfig> = {};
+  const commands: Record<string, string> = {};
 
   for (const name of tools) {
     const prefix = normalizeToolName(name);
@@ -78,14 +73,7 @@ export function loadToolConfigFromEnv(
       throw new Error(`Missing required environment variable: ${commandKey}`);
     }
 
-    const argsJsonKey = `${prefix}_ARGS_JSON`;
-    const argsJson = env[argsJsonKey];
-    const args =
-      argsJson === undefined || argsJson.length === 0
-        ? []
-        : (JSON.parse(argsJson) as string[]);
-
-    commands[name] = { command, args };
+    commands[name] = command;
   }
 
   return { tools, commands };

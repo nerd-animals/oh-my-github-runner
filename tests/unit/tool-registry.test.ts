@@ -40,14 +40,10 @@ describe("loadToolConfigFromEnv", () => {
     const config = loadToolConfigFromEnv({
       AGENTS: "claude",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
-      CLAUDE_ARGS_JSON: '["-p"]',
     });
 
     assert.deepEqual(config.tools, ["claude"]);
-    assert.deepEqual(config.commands.claude, {
-      command: "/usr/local/bin/claude",
-      args: ["-p"],
-    });
+    assert.equal(config.commands.claude, "/usr/local/bin/claude");
   });
 
   test("normalizes hyphenated tool names to env var prefixes", () => {
@@ -56,10 +52,7 @@ describe("loadToolConfigFromEnv", () => {
       "CODEX_CLI_COMMAND": "/usr/local/bin/codex",
     });
 
-    assert.deepEqual(config.commands["codex-cli"], {
-      command: "/usr/local/bin/codex",
-      args: [],
-    });
+    assert.equal(config.commands["codex-cli"], "/usr/local/bin/codex");
   });
 
   test("rejects missing AGENTS env", () => {
