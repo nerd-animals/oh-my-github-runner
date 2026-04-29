@@ -105,7 +105,6 @@ function createTask(
     repo: { owner: "octo", name: "repo" },
     source,
     instructionId,
-    instructionRevision: 1,
     agent: "claude",
     status: "running",
     priority: "normal",

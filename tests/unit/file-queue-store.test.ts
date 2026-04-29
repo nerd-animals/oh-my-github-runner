@@ -135,7 +135,7 @@ describe("FileQueueStore", () => {
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       assert.deepEqual(await readdir(join(root, "running")), [
         `${task.taskId}.json`,
       ]);
@@ -145,7 +145,6 @@ describe("FileQueueStore", () => {
 
       const reloadedTask = await store.getTask(task.taskId);
       assert.equal(reloadedTask?.status, "succeeded");
-      assert.equal(reloadedTask?.instructionRevision, 1);
       assert.equal(typeof reloadedTask?.startedAt, "string");
       assert.equal(typeof reloadedTask?.finishedAt, "string");
 
@@ -158,7 +157,7 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("revertToQueued resets a running task back to queued and clears revision", async () => {
+  test("revertToQueued resets a running task back to queued", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
@@ -171,11 +170,10 @@ describe("FileQueueStore", () => {
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       const reverted = await store.revertToQueued(task.taskId);
 
       assert.equal(reverted.status, "queued");
-      assert.equal(reverted.instructionRevision, undefined);
       assert.equal(reverted.startedAt, undefined);
       assert.equal(reverted.finishedAt, undefined);
       assert.equal(reverted.errorSummary, undefined);
@@ -193,7 +191,6 @@ describe("FileQueueStore", () => {
       const onDisk = JSON.parse(
         await readFile(join(root, "queued", `${task.taskId}.json`), "utf8"),
       );
-      assert.equal("instructionRevision" in onDisk, false);
       assert.equal("startedAt" in onDisk, false);
       assert.equal("finishedAt" in onDisk, false);
       assert.equal("errorSummary" in onDisk, false);
@@ -215,7 +212,7 @@ describe("FileQueueStore", () => {
         requestedBy: "test",
       });
 
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       await store.recoverRunningTasks("daemon interrupted before completion");
 
       const reloadedTask = await store.getTask(task.taskId);
@@ -249,7 +246,7 @@ describe("FileQueueStore", () => {
         agent: "claude",
         requestedBy: "test",
       });
-      await store.startTask(oldDone.taskId, 1);
+      await store.startTask(oldDone.taskId);
       await store.completeTask(oldDone.taskId, { status: "succeeded" });
 
       const oldFailed = await store.enqueue({
@@ -259,7 +256,7 @@ describe("FileQueueStore", () => {
         agent: "claude",
         requestedBy: "test",
       });
-      await store.startTask(oldFailed.taskId, 1);
+      await store.startTask(oldFailed.taskId);
       await store.completeTask(oldFailed.taskId, {
         status: "failed",
         errorSummary: "boom",
@@ -286,7 +283,7 @@ describe("FileQueueStore", () => {
         agent: "claude",
         requestedBy: "test",
       });
-      await store.startTask(recentDone.taskId, 1);
+      await store.startTask(recentDone.taskId);
       await store.completeTask(recentDone.taskId, { status: "succeeded" });
 
       const stillQueued = await store.enqueue({
@@ -384,7 +381,7 @@ describe("FileQueueStore", () => {
       };
 
       assert.equal(await countOccurrences(task.taskId), 1);
-      await store.startTask(task.taskId, 1);
+      await store.startTask(task.taskId);
       assert.equal(await countOccurrences(task.taskId), 1);
       await store.completeTask(task.taskId, { status: "succeeded" });
       assert.equal(await countOccurrences(task.taskId), 1);

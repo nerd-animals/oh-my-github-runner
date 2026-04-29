@@ -84,14 +84,10 @@ export class FileQueueStore implements QueueStore {
     return undefined;
   }
 
-  async startTask(
-    taskId: string,
-    instructionRevision: number,
-  ): Promise<TaskRecord> {
+  async startTask(taskId: string): Promise<TaskRecord> {
     const task = await this.requireFromStatus("queued", taskId);
 
     task.status = "running";
-    task.instructionRevision = instructionRevision;
     task.startedAt = new Date().toISOString();
     delete task.finishedAt;
     delete task.errorSummary;
@@ -126,7 +122,6 @@ export class FileQueueStore implements QueueStore {
     delete task.startedAt;
     delete task.finishedAt;
     delete task.errorSummary;
-    delete task.instructionRevision;
 
     await this.relocate(task, "running");
     return task;

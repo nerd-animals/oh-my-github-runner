@@ -96,7 +96,6 @@ export class RunnerDaemon {
 
       const startedTask = await this.dependencies.queueStore.startTask(
         task.taskId,
-        instruction.revision,
       );
 
       console.log(

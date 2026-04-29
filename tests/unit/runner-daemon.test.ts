@@ -51,12 +51,11 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (taskId, instructionRevision) => {
-          calls.push(`start:${taskId}:${instructionRevision}`);
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-24T00:01:00.000Z",
           };
           return currentTask;
@@ -108,7 +107,7 @@ describe("RunnerDaemon", () => {
     assert.deepEqual(calls, [
       "recover:daemon interrupted before completion",
       "cleanupLogs",
-      "start:task_1:1",
+      "start:task_1",
       "execute",
       "complete:task_1:succeeded",
     ]);
@@ -124,12 +123,11 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (taskId, instructionRevision) => {
-          calls.push(`start:${taskId}:${instructionRevision}`);
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-26T00:01:00.000Z",
           };
           return currentTask;
@@ -190,11 +188,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -249,11 +246,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -297,11 +293,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -360,11 +355,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
@@ -412,11 +406,10 @@ describe("RunnerDaemon", () => {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (_taskId, instructionRevision) => {
+        startTask: async (_taskId) => {
           currentTask = {
             ...currentTask,
             status: "running",
-            instructionRevision,
             startedAt: "2026-04-27T00:01:00.000Z",
           };
           return currentTask;
