@@ -5,7 +5,7 @@ import type { Strategy } from "./types.js";
 const TIMEOUT_MS = 1800 * 1000;
 
 export const issueCommentReplyStrategy: Strategy = {
-  policies: { supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
+  policies: { tool: "claude", supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
   run: async (task, tk, signal) => {
     signal.throwIfAborted();
     await using ws = await tk.workspace.prepareObserve(task);

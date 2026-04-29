@@ -68,7 +68,9 @@ export type DispatchAction =
     };
 
 export interface EventDispatcherDependencies {
-  toolRegistry: Pick<ToolRegistry, "has" | "getDefaultTool">;
+  toolRegistry: Pick<ToolRegistry, "has">;
+  /** Resolves the tool a given strategy declares in its policies. */
+  resolveStrategyTool: (instructionId: string) => string;
   botUserId: number;
   allowedSenderIds: ReadonlySet<number>;
   noAiLabel?: string;
@@ -138,7 +140,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: this.deps.toolRegistry.getDefaultTool(),
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -174,7 +176,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: parsed.tool,
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -235,7 +237,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: parsed.tool,
+      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
       requestedBy: event.sender.login,

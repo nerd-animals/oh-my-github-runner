@@ -82,6 +82,8 @@ export type ExecuteResult =
   | { status: "rate_limited"; toolName: string };
 
 export interface StrategyPolicies {
+  /** Tool the dispatcher uses when enqueueing this strategy. */
+  tool: string;
   /** EnqueueService cancels prior active tasks on the same (repo, source). */
   supersedeOnSameSource: boolean;
   /** Per-call ai.run timeout default (replaces yaml `execution.timeout_sec`). */

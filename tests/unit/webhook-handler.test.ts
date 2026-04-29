@@ -52,8 +52,8 @@ function buildHarness(options: HarnessOptions = {}): Harness {
   const dispatcher = new EventDispatcher({
     toolRegistry: {
       has: (name: string) => name === "claude",
-      getDefaultTool: () => "claude",
     },
+    resolveStrategyTool: () => "claude",
     botUserId,
     allowedSenderIds: new Set([1, 100, 200]),
   });
@@ -411,8 +411,8 @@ describe("WebhookHandler", () => {
     const dispatcher = new EventDispatcher({
       toolRegistry: {
         has: (name: string) => name === "claude",
-        getDefaultTool: () => "claude",
       },
+      resolveStrategyTool: () => "claude",
       botUserId,
       allowedSenderIds: new Set([100]),
     });

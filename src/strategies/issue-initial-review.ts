@@ -19,7 +19,7 @@ const PER_PERSONA_TIMEOUT_MS = 1800 * 1000;
 const TIMEOUT_MS = PER_PERSONA_TIMEOUT_MS * PERSONAS.length;
 
 export const issueInitialReviewStrategy: Strategy = {
-  policies: { supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
+  policies: { tool: "claude", supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
   run: async (task, tk, signal) => {
     signal.throwIfAborted();
     await using ws = await tk.workspace.prepareObserve(task);

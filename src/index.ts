@@ -158,7 +158,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       };
     }),
   );
-  const toolRegistry = new ToolRegistry(toolEntries, toolConfig.defaultTool);
+  const toolRegistry = new ToolRegistry(toolEntries);
 
   const rateLimitStateStore = new RateLimitStateStore({
     filePath: path.join(runnerRoot, "var", "queue", "state.json"),
@@ -325,6 +325,8 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
 
   const dispatcher = new EventDispatcher({
     toolRegistry,
+    resolveStrategyTool: (instructionId) =>
+      getStrategy(instructionId).policies.tool,
     botUserId,
     allowedSenderIds,
   });

@@ -21,32 +21,17 @@ describe("normalizeToolName", () => {
 
 describe("ToolRegistry", () => {
   test("resolves a registered tool runner", () => {
-    const registry = new ToolRegistry(
-      [{ name: "claude", runner: stubRunner }],
-      "claude",
-    );
+    const registry = new ToolRegistry([{ name: "claude", runner: stubRunner }]);
 
     assert.equal(registry.resolve("claude"), stubRunner);
     assert.equal(registry.has("claude"), true);
-    assert.equal(registry.getDefaultTool(), "claude");
     assert.deepEqual(registry.listTools(), ["claude"]);
   });
 
   test("throws when resolving an unknown tool", () => {
-    const registry = new ToolRegistry(
-      [{ name: "claude", runner: stubRunner }],
-      "claude",
-    );
+    const registry = new ToolRegistry([{ name: "claude", runner: stubRunner }]);
 
     assert.throws(() => registry.resolve("codex"), /Unknown tool: codex/);
-  });
-
-  test("rejects a default tool that is not registered", () => {
-    assert.throws(
-      () =>
-        new ToolRegistry([{ name: "claude", runner: stubRunner }], "codex"),
-      /DEFAULT_AGENT 'codex' is not in the AGENTS registry/,
-    );
   });
 });
 
@@ -59,7 +44,6 @@ describe("loadToolConfigFromEnv", () => {
     });
 
     assert.deepEqual(config.tools, ["claude"]);
-    assert.equal(config.defaultTool, "claude");
     assert.deepEqual(config.commands.claude, {
       command: "/usr/local/bin/claude",
       args: ["-p"],
@@ -76,39 +60,6 @@ describe("loadToolConfigFromEnv", () => {
       command: "/usr/local/bin/codex",
       args: [],
     });
-  });
-
-  test("uses the first tool as the default when DEFAULT_AGENT is unset", () => {
-    const config = loadToolConfigFromEnv({
-      AGENTS: "claude,codex",
-      CLAUDE_COMMAND: "/usr/local/bin/claude",
-      CODEX_COMMAND: "/usr/local/bin/codex",
-    });
-
-    assert.equal(config.defaultTool, "claude");
-  });
-
-  test("honors DEFAULT_AGENT when set", () => {
-    const config = loadToolConfigFromEnv({
-      AGENTS: "claude,codex",
-      DEFAULT_AGENT: "codex",
-      CLAUDE_COMMAND: "/usr/local/bin/claude",
-      CODEX_COMMAND: "/usr/local/bin/codex",
-    });
-
-    assert.equal(config.defaultTool, "codex");
-  });
-
-  test("rejects DEFAULT_AGENT not in AGENTS", () => {
-    assert.throws(
-      () =>
-        loadToolConfigFromEnv({
-          AGENTS: "claude",
-          DEFAULT_AGENT: "codex",
-          CLAUDE_COMMAND: "/usr/local/bin/claude",
-        }),
-      /DEFAULT_AGENT 'codex' must be one of AGENTS/,
-    );
   });
 
   test("rejects missing AGENTS env", () => {

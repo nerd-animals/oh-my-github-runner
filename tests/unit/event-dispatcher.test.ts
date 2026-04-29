@@ -15,8 +15,8 @@ function makeDispatcher(options?: {
   return new EventDispatcher({
     toolRegistry: {
       has: (name: string) => name === "claude",
-      getDefaultTool: () => "claude",
     },
+    resolveStrategyTool: () => "claude",
     botUserId: options?.botUserId ?? 9999,
     allowedSenderIds: options?.allowedSenderIds ?? new Set([100, 101, 102]),
   });

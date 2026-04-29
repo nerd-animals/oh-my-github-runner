@@ -8,18 +8,9 @@ export interface ToolRegistryEntry {
 export class ToolRegistry {
   private readonly runners = new Map<string, ToolRunner>();
 
-  constructor(
-    entries: ToolRegistryEntry[],
-    private readonly defaultToolName: string,
-  ) {
+  constructor(entries: ToolRegistryEntry[]) {
     for (const entry of entries) {
       this.runners.set(entry.name, entry.runner);
-    }
-
-    if (!this.runners.has(defaultToolName)) {
-      throw new Error(
-        `DEFAULT_AGENT '${defaultToolName}' is not in the AGENTS registry`,
-      );
     }
   }
 
@@ -35,10 +26,6 @@ export class ToolRegistry {
 
   has(name: string): boolean {
     return this.runners.has(name);
-  }
-
-  getDefaultTool(): string {
-    return this.defaultToolName;
   }
 
   listTools(): string[] {
@@ -57,13 +44,11 @@ export interface ToolCommandConfig {
 
 export interface ToolEnvConfig {
   tools: string[];
-  defaultTool: string;
   commands: Record<string, ToolCommandConfig>;
 }
 
-// NB: env-var names (AGENTS / DEFAULT_AGENT / <NAME>_COMMAND / <NAME>_ARGS_JSON)
-// are intentionally NOT renamed in this commit — that's an operator-visible
-// change and stays as a separate follow-up so existing deploys don't break.
+// NB: env-var names (AGENTS / <NAME>_COMMAND / <NAME>_ARGS_JSON) are still the
+// pre-rename names — operator-visible env rename stays as a separate follow-up.
 export function loadToolConfigFromEnv(
   env: NodeJS.ProcessEnv,
 ): ToolEnvConfig {
@@ -80,18 +65,6 @@ export function loadToolConfigFromEnv(
 
   if (tools.length === 0) {
     throw new Error("AGENTS must contain at least one tool name");
-  }
-
-  const defaultToolEnv = env.DEFAULT_AGENT;
-  const defaultTool =
-    defaultToolEnv !== undefined && defaultToolEnv.length > 0
-      ? defaultToolEnv
-      : (tools[0] as string);
-
-  if (!tools.includes(defaultTool)) {
-    throw new Error(
-      `DEFAULT_AGENT '${defaultTool}' must be one of AGENTS (${tools.join(", ")})`,
-    );
   }
 
   const commands: Record<string, ToolCommandConfig> = {};
@@ -115,5 +88,5 @@ export function loadToolConfigFromEnv(
     commands[name] = { command, args };
   }
 
-  return { tools, defaultTool, commands };
+  return { tools, commands };
 }
