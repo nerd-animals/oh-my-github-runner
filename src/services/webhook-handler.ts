@@ -1,4 +1,8 @@
-import type { RepoRef, StickyCommentRef } from "../domain/task.js";
+import type {
+  RepoRef,
+  StickyCommentRef,
+  TaskNotifications,
+} from "../domain/task.js";
 import type {
   GitHubClient,
   ReactionTarget,
@@ -331,7 +335,11 @@ export class WebhookHandler {
       trigger: action.trigger,
     };
 
-    await this.tryAddReaction(action.repo, action.trigger, "eyes");
+    const reactionRef = await this.tryAddReaction(
+      action.repo,
+      action.trigger,
+      "eyes",
+    );
 
     let stickyComment: StickyCommentRef | undefined;
 
@@ -352,6 +360,17 @@ export class WebhookHandler {
       );
     }
 
+    const notifications: TaskNotifications = {};
+    if (stickyComment !== undefined) {
+      notifications.sticky = stickyComment;
+    }
+    if (reactionRef !== undefined) {
+      notifications.trigger = {
+        target: reactionRef.target,
+        reactionId: reactionRef.reactionId,
+      };
+    }
+
     try {
       await this.deps.enqueueService.enqueue({
         taskId,
@@ -360,7 +379,10 @@ export class WebhookHandler {
         instructionId: action.instructionId,
         agent: action.agent,
         requestedBy: action.requestedBy,
-        ...(stickyComment !== undefined ? { stickyComment } : {}),
+        ...(notifications.sticky !== undefined ||
+        notifications.trigger !== undefined
+          ? { notifications }
+          : {}),
         ...(action.additionalInstructions !== undefined
           ? { additionalInstructions: action.additionalInstructions }
           : {}),
@@ -395,18 +417,24 @@ export class WebhookHandler {
     repo: RepoRef,
     trigger: TriggerLocation,
     content: "eyes" | "-1",
-  ): Promise<void> {
+  ): Promise<{ target: ReactionTarget; reactionId: number } | undefined> {
     const target: ReactionTarget =
       trigger.kind === "issue"
         ? { kind: "issue", issueNumber: trigger.issueNumber }
         : { kind: "comment", commentId: trigger.commentId };
 
     try {
-      await this.deps.githubClient.addReaction(repo, target, content);
+      const { reactionId } = await this.deps.githubClient.addReaction(
+        repo,
+        target,
+        content,
+      );
+      return { target, reactionId };
     } catch (error) {
       console.warn(
         `[webhook] failed to add ${content} reaction: ${describeError(error)}`,
       );
+      return undefined;
     }
   }
 }

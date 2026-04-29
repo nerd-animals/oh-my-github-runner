@@ -30,7 +30,6 @@ import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
 import {
   renderFailure,
   renderRateLimited,
-  renderSuccess,
 } from "./services/sticky-comment.js";
 import type { TaskRecord } from "./domain/task.js";
 
@@ -203,13 +202,44 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       await editStickyOrPost(task, body);
     },
     notifyTaskSucceeded: async (task) => {
-      if (task.stickyComment === undefined) {
+      const notifications = task.notifications;
+      if (notifications === undefined) {
         return;
       }
-      await editSticky(task, renderSuccess(task));
+
+      if (notifications.sticky !== undefined) {
+        try {
+          await githubClient.deleteIssueComment(
+            notifications.sticky.repo,
+            notifications.sticky.commentId,
+          );
+        } catch (error) {
+          console.warn(
+            `[daemon] failed to delete sticky comment for task=${task.taskId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+
+      if (notifications.trigger !== undefined) {
+        try {
+          await githubClient.deleteReaction(
+            task.repo,
+            notifications.trigger.target,
+            notifications.trigger.reactionId,
+          );
+        } catch (error) {
+          console.warn(
+            `[daemon] failed to delete trigger reaction for task=${task.taskId}: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
     },
     notifyTaskRateLimited: async (task) => {
-      if (task.stickyComment === undefined) {
+      if (task.notifications?.sticky === undefined) {
         return;
       }
       await editSticky(task, renderRateLimited(task));
@@ -217,16 +247,13 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   });
 
   async function editSticky(task: TaskRecord, body: string): Promise<void> {
-    if (task.stickyComment === undefined) {
+    const sticky = task.notifications?.sticky;
+    if (sticky === undefined) {
       return;
     }
 
     try {
-      await githubClient.updateIssueComment(
-        task.stickyComment.repo,
-        task.stickyComment.commentId,
-        body,
-      );
+      await githubClient.updateIssueComment(sticky.repo, sticky.commentId, body);
     } catch (error) {
       console.warn(
         `[daemon] failed to edit sticky comment for task=${task.taskId}: ${
@@ -240,7 +267,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     task: TaskRecord,
     body: string,
   ): Promise<void> {
-    if (task.stickyComment !== undefined) {
+    if (task.notifications?.sticky !== undefined) {
       await editSticky(task, body);
       return;
     }

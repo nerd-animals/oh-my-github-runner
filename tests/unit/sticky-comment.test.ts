@@ -7,7 +7,6 @@ import {
   renderQueued,
   renderRateLimited,
   renderRejection,
-  renderSuccess,
   stickyCommentMarker,
   type StickyCommentMeta,
 } from "../../src/services/sticky-comment.js";
@@ -40,12 +39,6 @@ describe("sticky-comment renderers", () => {
     assert.match(body, /task_abc_123/);
     assert.match(body, /issue-initial-review/);
     assert.match(body, /@alice/);
-  });
-
-  test("renderSuccess preserves the same marker so edits target one comment", () => {
-    const body = renderSuccess(task);
-    assert.match(body, new RegExp(stickyCommentMarker(task.taskId)));
-    assert.match(body, /Task completed/);
   });
 
   test("renderFailure includes the error summary truncated to a code block", () => {

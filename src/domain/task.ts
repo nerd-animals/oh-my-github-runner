@@ -19,6 +19,20 @@ export interface StickyCommentRef {
   commentId: number;
 }
 
+export type TriggerTarget =
+  | { kind: "issue"; issueNumber: number }
+  | { kind: "comment"; commentId: number };
+
+export interface TriggerReactionRef {
+  target: TriggerTarget;
+  reactionId: number;
+}
+
+export interface TaskNotifications {
+  sticky?: StickyCommentRef;
+  trigger?: TriggerReactionRef;
+}
+
 export interface TaskRecord {
   taskId: string;
   repo: RepoRef;
@@ -34,5 +48,7 @@ export interface TaskRecord {
   startedAt?: string;
   finishedAt?: string;
   errorSummary?: string;
+  notifications?: TaskNotifications;
+  /** @deprecated read-only legacy fallback; new records use `notifications.sticky`. */
   stickyComment?: StickyCommentRef;
 }

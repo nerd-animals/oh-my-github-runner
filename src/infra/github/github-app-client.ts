@@ -295,17 +295,60 @@ export class GitHubAppClient implements GitHubClient {
     );
   }
 
+  async deleteIssueComment(repo: RepoRef, commentId: number): Promise<void> {
+    try {
+      await this.installationRequest(
+        repo,
+        "DELETE",
+        `/repos/${repo.owner}/${repo.name}/issues/comments/${commentId}`,
+      );
+    } catch (error) {
+      // 404 = already deleted by a user or a previous cleanup; idempotent.
+      if (isNotFoundError(error)) {
+        return;
+      }
+      throw error;
+    }
+  }
+
   async addReaction(
     repo: RepoRef,
     target: ReactionTarget,
     content: ReactionContent,
-  ): Promise<void> {
+  ): Promise<{ reactionId: number }> {
     const pathname =
       target.kind === "issue"
         ? `/repos/${repo.owner}/${repo.name}/issues/${target.issueNumber}/reactions`
         : `/repos/${repo.owner}/${repo.name}/issues/comments/${target.commentId}/reactions`;
 
-    await this.installationRequest(repo, "POST", pathname, { content });
+    const response = await this.installationRequest<{ id: number }>(
+      repo,
+      "POST",
+      pathname,
+      { content },
+    );
+
+    return { reactionId: response.id };
+  }
+
+  async deleteReaction(
+    repo: RepoRef,
+    target: ReactionTarget,
+    reactionId: number,
+  ): Promise<void> {
+    const pathname =
+      target.kind === "issue"
+        ? `/repos/${repo.owner}/${repo.name}/issues/${target.issueNumber}/reactions/${reactionId}`
+        : `/repos/${repo.owner}/${repo.name}/issues/comments/${target.commentId}/reactions/${reactionId}`;
+
+    try {
+      await this.installationRequest(repo, "DELETE", pathname);
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return;
+      }
+      throw error;
+    }
   }
 
   async findCommentByMarker(
@@ -738,6 +781,10 @@ function mapLinkedRefsResponse(
   }
 
   return { closes, bodyMentions };
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && / -> 404$/.test(error.message);
 }
 
 function toLinkedRefEntry(node: LinkedRefsGraphQLNode): LinkedRefEntry {
