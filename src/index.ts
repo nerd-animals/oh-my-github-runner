@@ -190,7 +190,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     runStrategy: (task, signal) =>
       getStrategy(task.instructionId).run(
         task,
-        toolkitFactory.create(task),
+        toolkitFactory.create(task, signal),
         signal,
       ),
     logStore,
@@ -299,6 +299,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
 
   const enqueueService = new EnqueueService({
     queueStore,
+    onSupersede: (oldId, newId) => daemon.supersede(oldId, newId),
   });
 
   const botUserIdOverride = process.env.BOT_USER_ID;

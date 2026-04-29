@@ -416,4 +416,94 @@ describe("RunnerDaemon", () => {
 
     assert.deepEqual(notifiedRateLimited, ["task_1"]);
   });
+
+  test("supersede aborts a running task and persists supersededBy without notifying failure", async () => {
+    const calls: string[] = [];
+    let currentTask = createTask("queued");
+    const supersededNotifications: Array<{
+      taskId: string;
+      supersededBy: string;
+    }> = [];
+
+    let resolveStrategy: ((value: { status: "failed"; errorSummary: string }) => void) | undefined;
+    const strategyPromise = new Promise<{ status: "failed"; errorSummary: string }>(
+      (resolve) => {
+        resolveStrategy = resolve;
+      },
+    );
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-30T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          calls.push("complete");
+          throw new Error("completeTask should not run for superseded tasks");
+        },
+        revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async (taskId, supersededBy) => {
+          calls.push(`markSuperseded:${taskId}:${supersededBy}`);
+          currentTask = {
+            ...currentTask,
+            status: "superseded",
+            supersededBy,
+            finishedAt: "2026-04-30T00:02:00.000Z",
+          };
+          return currentTask;
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      runStrategy: async (_task, signal) => {
+        signal.addEventListener("abort", () => {
+          resolveStrategy?.({
+            status: "failed",
+            errorSummary: "aborted",
+          });
+        });
+        return strategyPromise;
+      },
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifyTaskFailure: async () => {
+        calls.push("notifyFailure");
+      },
+      notifyTaskSuperseded: async (task, supersededBy) => {
+        supersededNotifications.push({ taskId: task.taskId, supersededBy });
+      },
+    });
+
+    await daemon.tick();
+    // Task is now running; trigger supersede.
+    await daemon.supersede("task_1", "task_2");
+    await daemon.waitForIdle();
+
+    assert.deepEqual(supersededNotifications, [
+      { taskId: "task_1", supersededBy: "task_2" },
+    ]);
+    assert.ok(
+      calls.includes("markSuperseded:task_1:task_2"),
+      `expected markSuperseded call, got: ${calls.join(", ")}`,
+    );
+    assert.equal(
+      calls.includes("notifyFailure"),
+      false,
+      "supersede must not trigger the failure notifier",
+    );
+  });
 });

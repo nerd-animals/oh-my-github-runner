@@ -29,6 +29,7 @@ export class HeadlessCommandAgentRunner implements AgentRunner {
       cwd: input.workspacePath,
       stdin: input.prompt,
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.signal !== undefined ? { signal: input.signal } : {}),
       env: {
         ...process.env,
         ...this.options.extraEnv,

@@ -27,8 +27,8 @@ export interface ToolkitFactoryOptions {
 export class ToolkitFactory {
   constructor(private readonly options: ToolkitFactoryOptions) {}
 
-  create(task: TaskRecord): Toolkit {
-    return new ToolkitImpl(task, this.options);
+  create(task: TaskRecord, signal?: AbortSignal): Toolkit {
+    return new ToolkitImpl(task, signal, this.options);
   }
 }
 
@@ -48,6 +48,7 @@ class ToolkitImpl implements Toolkit {
 
   constructor(
     private readonly task: TaskRecord,
+    private readonly signal: AbortSignal | undefined,
     private readonly options: ToolkitFactoryOptions,
   ) {}
 
@@ -215,6 +216,7 @@ class ToolkitImpl implements Toolkit {
           ...(opts.timeoutMs !== undefined
             ? { timeoutMs: opts.timeoutMs }
             : {}),
+          ...(this.signal !== undefined ? { signal: this.signal } : {}),
         });
       if (result.kind === "succeeded") {
         return { kind: "succeeded", stdout: result.stdout };

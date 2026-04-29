@@ -8,6 +8,11 @@ export interface AgentRunInput {
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
   timeoutMs?: number;
+  /**
+   * If aborted, the runner should kill its child process (SIGTERM with a
+   * brief grace period before SIGKILL) and return a failed result.
+   */
+  signal?: AbortSignal;
 }
 
 export type AgentRunResult =

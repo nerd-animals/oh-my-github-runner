@@ -31,6 +31,10 @@ export interface RunnerDaemonDependencies {
   ) => Promise<void>;
   notifyTaskSucceeded?: (task: TaskRecord) => Promise<void>;
   notifyTaskRateLimited?: (task: TaskRecord) => Promise<void>;
+  notifyTaskSuperseded?: (
+    task: TaskRecord,
+    supersededBy: string,
+  ) => Promise<void>;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -38,8 +42,15 @@ const DEFAULT_IDLE_WARNING_INTERVAL_MS = 60 * 1000;
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
+interface ActiveTask {
+  promise: Promise<void>;
+  abort: AbortController;
+  /** Task id of the request that superseded this one, if any. */
+  supersededBy: string | null;
+}
+
 export class RunnerDaemon {
-  private readonly activeTasks = new Map<string, Promise<void>>();
+  private readonly activeTasks = new Map<string, ActiveTask>();
   private readonly rateLimitCooldownMs: number;
   private readonly idleWarningIntervalMs: number;
   private readonly retentionMs: number;
@@ -97,16 +108,62 @@ export class RunnerDaemon {
         `[daemon] start task=${task.taskId} instruction=${task.instructionId} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
       );
 
-      const activeTask = this.runTask(startedTask).finally(() => {
+      const abort = new AbortController();
+      const active: ActiveTask = {
+        promise: Promise.resolve(),
+        abort,
+        supersededBy: null,
+      };
+      active.promise = this.runTask(startedTask, active).finally(() => {
         this.activeTasks.delete(task.taskId);
       });
+      this.activeTasks.set(task.taskId, active);
+    }
+  }
 
-      this.activeTasks.set(task.taskId, activeTask);
+  /**
+   * Supersede a queued- or running-status task. If the task is currently
+   * running, its AbortSignal is fired so the strategy can unwind cleanly;
+   * the queue record is then moved to "superseded" with `supersededBy` set.
+   * No-op if the task isn't active anymore (already completed, etc).
+   */
+  async supersede(oldTaskId: string, newTaskId: string): Promise<void> {
+    const active = this.activeTasks.get(oldTaskId);
+    if (active !== undefined) {
+      active.supersededBy = newTaskId;
+      active.abort.abort();
+      // Persist the supersede status now so observers see it immediately;
+      // runTask will skip its own completeTask call when supersededBy is set.
+      try {
+        await this.dependencies.queueStore.markSuperseded(
+          oldTaskId,
+          newTaskId,
+        );
+      } catch (error) {
+        this.warn(
+          `[daemon] markSuperseded(running) threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+      return;
+    }
+    // Not running on this daemon — just persist the supersede status.
+    try {
+      await this.dependencies.queueStore.markSuperseded(oldTaskId, newTaskId);
+    } catch (error) {
+      this.warn(
+        `[daemon] markSuperseded(queued) threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 
   async waitForIdle(): Promise<void> {
-    await Promise.all(this.activeTasks.values());
+    await Promise.all(
+      Array.from(this.activeTasks.values()).map((entry) => entry.promise),
+    );
   }
 
   async start(signal?: AbortSignal): Promise<void> {
@@ -183,21 +240,46 @@ export class RunnerDaemon {
     );
   }
 
-  private async runTask(task: TaskRecord): Promise<void> {
-    // Per-task AbortController. PR C will plumb this through supersede so
-    // a newer trigger on the same source can cancel an in-flight run; for
-    // now it stays unused (no aborts are issued).
-    const ctrl = new AbortController();
+  private async runTask(
+    task: TaskRecord,
+    active: ActiveTask,
+  ): Promise<void> {
     let result: ExecuteResult;
 
     try {
-      result = await this.dependencies.runStrategy(task, ctrl.signal);
+      result = await this.dependencies.runStrategy(task, active.abort.signal);
     } catch (error) {
       result = {
         status: "failed",
         errorSummary:
           error instanceof Error ? error.message : "unexpected daemon error",
       };
+    }
+
+    // If supersede fired while the run was in flight, the queue record
+    // has already been moved to "superseded" by daemon.supersede(). Skip
+    // completeTask (which expects to find the task in "running") and skip
+    // notifyTaskFailure — the strategy crash here is the abort, not a real
+    // failure.
+    if (active.supersededBy !== null) {
+      console.log(
+        `[daemon] superseded task=${task.taskId} by=${active.supersededBy}`,
+      );
+      if (this.dependencies.notifyTaskSuperseded !== undefined) {
+        try {
+          await this.dependencies.notifyTaskSuperseded(
+            task,
+            active.supersededBy,
+          );
+        } catch (error) {
+          this.warn(
+            `[daemon] notifyTaskSuperseded threw: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      }
+      return;
     }
 
     if (result.status === "rate_limited") {
