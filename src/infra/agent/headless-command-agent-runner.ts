@@ -1,5 +1,4 @@
 import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
-import type { ExecutionMode } from "../../domain/instruction.js";
 import type { AgentRunner } from "../../domain/ports/agent-runner.js";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 
@@ -8,7 +7,6 @@ export interface HeadlessCommandAgentRunnerOptions {
   args?: string[];
   processRunner: ProcessRunner;
   extraEnv?: NodeJS.ProcessEnv;
-  modeArgsBuilder?: (mode: ExecutionMode) => string[];
 }
 
 export class HeadlessCommandAgentRunner implements AgentRunner {
@@ -16,23 +14,26 @@ export class HeadlessCommandAgentRunner implements AgentRunner {
 
   async run(input: AgentRunInput): Promise<AgentRunResult> {
     const baseArgs = this.options.args ?? [];
-    const modeArgs =
-      this.options.modeArgsBuilder !== undefined
-        ? this.options.modeArgsBuilder(input.instruction.mode)
-        : [];
+    const toolArgs: string[] = [];
+
+    if (input.allowedTools !== undefined && input.allowedTools.length > 0) {
+      toolArgs.push("--allowed-tools", input.allowedTools.join(" "));
+    }
+    if (input.disallowedTools !== undefined && input.disallowedTools.length > 0) {
+      toolArgs.push("--disallowed-tools", input.disallowedTools.join(" "));
+    }
 
     const result = await this.options.processRunner.run({
       command: this.options.command,
-      args: [...baseArgs, ...modeArgs],
+      args: [...baseArgs, ...toolArgs],
       cwd: input.workspacePath,
       stdin: input.prompt,
-      timeoutMs: input.instruction.execution.timeoutSec * 1000,
+      ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       env: {
         ...process.env,
         ...this.options.extraEnv,
         RUNNER_TASK_ID: input.task.taskId,
-        RUNNER_MODE: input.instruction.mode,
-        RUNNER_INSTRUCTION_ID: input.instruction.id,
+        RUNNER_INSTRUCTION_ID: input.task.instructionId,
         RUNNER_REPO_OWNER: input.task.repo.owner,
         RUNNER_REPO_NAME: input.task.repo.name,
         ...(input.installationToken !== undefined

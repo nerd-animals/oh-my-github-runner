@@ -1,4 +1,7 @@
-import type { InstructionDefinition } from "../domain/instruction.js";
+import type {
+  ExecutionMode,
+  InstructionDefinition,
+} from "../domain/instruction.js";
 import type { GitHubSourceContext } from "../domain/github.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { GitHubClient } from "../domain/ports/github-client.js";
@@ -8,6 +11,12 @@ import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
 import { buildBranchName } from "../domain/rules/task-naming.js";
 import type { PromptAssets } from "../infra/prompts/prompt-asset-loader.js";
 import type { CleanupAgentArtifacts } from "../domain/ports/agent-artifact-cleaner.js";
+import {
+  MUTATE_ALLOWED,
+  MUTATE_DISALLOWED,
+  OBSERVE_ALLOWED,
+  OBSERVE_DISALLOWED,
+} from "../strategies/_shared/tool-presets.js";
 import type { AgentRegistry } from "./agent-registry.js";
 
 export interface ExecutionServiceDependencies {
@@ -190,11 +199,11 @@ export class ExecutionService {
     | { terminal: "succeeded" }
     | { terminal: "early"; result: ExecuteTaskResult }
   > {
+    const tools = toolsForMode(input.instruction.mode);
     const agentResult = await this.dependencies.agentRegistry
       .resolve(input.task.agent)
       .run({
         task: input.task,
-        instruction: input.instruction,
         workspacePath,
         installationToken,
         prompt: this.promptBuilder.build({
@@ -202,6 +211,9 @@ export class ExecutionService {
           instruction: input.instruction,
           context,
         }),
+        allowedTools: tools.allowed,
+        disallowedTools: tools.disallowed,
+        timeoutMs: input.instruction.execution.timeoutSec * 1000,
       });
 
     if (agentResult.kind === "rate_limited") {
@@ -232,4 +244,14 @@ export class ExecutionService {
       errorSummary,
     };
   }
+}
+
+function toolsForMode(mode: ExecutionMode): {
+  allowed: readonly string[];
+  disallowed: readonly string[];
+} {
+  if (mode === "observe") {
+    return { allowed: OBSERVE_ALLOWED, disallowed: OBSERVE_DISALLOWED };
+  }
+  return { allowed: MUTATE_ALLOWED, disallowed: MUTATE_DISALLOWED };
 }

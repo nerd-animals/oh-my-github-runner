@@ -1,14 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { AgentRunInput, AgentRunResult } from "../../src/domain/agent.js";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import type { AgentRunner } from "../../src/domain/ports/agent-runner.js";
 import { RateLimitDetectingAgentRunner } from "../../src/infra/agent/rate-limit-detecting-agent-runner.js";
 
 const stubInput: AgentRunInput = {
   task: {} as TaskRecord,
-  instruction: {} as InstructionDefinition,
   workspacePath: "/tmp",
   prompt: "",
 };

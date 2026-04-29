@@ -1,12 +1,13 @@
-import type { InstructionDefinition } from "./instruction.js";
 import type { TaskRecord } from "./task.js";
 
 export interface AgentRunInput {
   task: TaskRecord;
-  instruction: InstructionDefinition;
   workspacePath: string;
   prompt: string;
   installationToken?: string;
+  allowedTools?: readonly string[];
+  disallowedTools?: readonly string[];
+  timeoutMs?: number;
 }
 
 export type AgentRunResult =

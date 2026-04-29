@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { AgentRunInput } from "../../src/domain/agent.js";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { HeadlessCommandAgentRunner } from "../../src/infra/agent/headless-command-agent-runner.js";
 import type {
@@ -9,28 +8,6 @@ import type {
   RunProcessInput,
   RunProcessResult,
 } from "../../src/domain/ports/process-runner.js";
-
-const instruction: InstructionDefinition = {
-  id: "issue-comment-reply",
-  revision: 1,
-  sourceKind: "issue",
-  mode: "observe",
-  workflow: "observe",
-  persona: "architecture",
-  context: {},
-  permissions: {
-    codeRead: true,
-    codeWrite: false,
-    gitPush: false,
-    prCreate: false,
-    prUpdate: false,
-    commentWrite: true,
-  },
-  githubActions: ["issue_comment"],
-  execution: {
-    timeoutSec: 60,
-  },
-};
 
 const task: TaskRecord = {
   taskId: "task_1",
@@ -45,7 +22,10 @@ const task: TaskRecord = {
   startedAt: "2026-04-27T00:01:00.000Z",
 };
 
-function createRunner(): { processRunner: ProcessRunner; calls: RunProcessInput[] } {
+function createRunner(): {
+  processRunner: ProcessRunner;
+  calls: RunProcessInput[];
+} {
   const calls: RunProcessInput[] = [];
   const processRunner: ProcessRunner = {
     run: async (input): Promise<RunProcessResult> => {
@@ -56,8 +36,8 @@ function createRunner(): { processRunner: ProcessRunner; calls: RunProcessInput[
   return { processRunner, calls };
 }
 
-describe("HeadlessCommandAgentRunner env wiring", () => {
-  test("sets GH_TOKEN and GITHUB_TOKEN when an installation token is provided", async () => {
+describe("HeadlessCommandAgentRunner", () => {
+  test("forwards GH_TOKEN/GITHUB_TOKEN when an installation token is provided", async () => {
     const { processRunner, calls } = createRunner();
     const runner = new HeadlessCommandAgentRunner({
       command: "claude",
@@ -66,7 +46,6 @@ describe("HeadlessCommandAgentRunner env wiring", () => {
 
     const runInput: AgentRunInput = {
       task,
-      instruction,
       workspacePath: "/tmp/ws",
       prompt: "hello",
       installationToken: "ghs_FAKE_TOKEN",
@@ -79,30 +58,59 @@ describe("HeadlessCommandAgentRunner env wiring", () => {
     assert.equal(calls[0]?.env?.GITHUB_TOKEN, "ghs_FAKE_TOKEN");
   });
 
-  test("modeArgsBuilder output is appended to base args", async () => {
+  test("appends --allowed-tools and --disallowed-tools to base args", async () => {
     const { processRunner, calls } = createRunner();
     const runner = new HeadlessCommandAgentRunner({
       command: "claude",
       args: ["--print"],
       processRunner,
-      modeArgsBuilder: (mode) =>
-        mode === "observe"
-          ? ["--allowed-tools", "Read"]
-          : ["--allowed-tools", "Edit"],
     });
 
     await runner.run({
       task,
-      instruction,
       workspacePath: "/tmp/ws",
       prompt: "hello",
+      allowedTools: ["Read", "Grep"],
+      disallowedTools: ["Edit", "Write"],
     });
 
     assert.deepEqual(calls[0]?.args, [
       "--print",
       "--allowed-tools",
-      "Read",
+      "Read Grep",
+      "--disallowed-tools",
+      "Edit Write",
     ]);
+  });
+
+  test("omits tool flags when neither allowed nor disallowed lists are provided", async () => {
+    const { processRunner, calls } = createRunner();
+    const runner = new HeadlessCommandAgentRunner({
+      command: "claude",
+      args: ["--print"],
+      processRunner,
+    });
+
+    await runner.run({ task, workspacePath: "/tmp/ws", prompt: "hello" });
+
+    assert.deepEqual(calls[0]?.args, ["--print"]);
+  });
+
+  test("forwards timeoutMs to the process runner", async () => {
+    const { processRunner, calls } = createRunner();
+    const runner = new HeadlessCommandAgentRunner({
+      command: "claude",
+      processRunner,
+    });
+
+    await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "hello",
+      timeoutMs: 5000,
+    });
+
+    assert.equal(calls[0]?.timeoutMs, 5000);
   });
 
   test("does not set GH_TOKEN/GITHUB_TOKEN when no installation token is provided", async () => {
@@ -118,12 +126,7 @@ describe("HeadlessCommandAgentRunner env wiring", () => {
         processRunner,
       });
 
-      await runner.run({
-        task,
-        instruction,
-        workspacePath: "/tmp/ws",
-        prompt: "hello",
-      });
+      await runner.run({ task, workspacePath: "/tmp/ws", prompt: "hello" });
 
       assert.equal(calls.length, 1);
       assert.equal(calls[0]?.env?.GH_TOKEN, undefined);
