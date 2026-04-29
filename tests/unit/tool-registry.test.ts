@@ -36,9 +36,8 @@ describe("ToolRegistry", () => {
 });
 
 describe("loadToolConfigFromEnv", () => {
-  test("parses a single-tool env block", () => {
+  test("enables a known tool when its <NAME>_COMMAND is set", () => {
     const config = loadToolConfigFromEnv({
-      TOOLS: "claude",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
     });
 
@@ -46,29 +45,14 @@ describe("loadToolConfigFromEnv", () => {
     assert.equal(config.commands.claude, "/usr/local/bin/claude");
   });
 
-  test("normalizes hyphenated tool names to env var prefixes", () => {
-    const config = loadToolConfigFromEnv({
-      TOOLS: "codex-cli",
-      "CODEX_CLI_COMMAND": "/usr/local/bin/codex",
-    });
-
-    assert.equal(config.commands["codex-cli"], "/usr/local/bin/codex");
-  });
-
-  test("rejects missing TOOLS env", () => {
+  test("ignores an empty <NAME>_COMMAND value", () => {
     assert.throws(
-      () => loadToolConfigFromEnv({}),
-      /Missing required environment variable: TOOLS/,
+      () => loadToolConfigFromEnv({ CLAUDE_COMMAND: "" }),
+      /No tool enabled/,
     );
   });
 
-  test("rejects missing per-tool COMMAND env", () => {
-    assert.throws(
-      () =>
-        loadToolConfigFromEnv({
-          TOOLS: "claude",
-        }),
-      /Missing required environment variable: CLAUDE_COMMAND/,
-    );
+  test("throws when no <NAME>_COMMAND is set for any known tool", () => {
+    assert.throws(() => loadToolConfigFromEnv({}), /No tool enabled/);
   });
 });

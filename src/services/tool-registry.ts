@@ -37,6 +37,10 @@ export function normalizeToolName(name: string): string {
   return name.toUpperCase().replace(/-/g, "_");
 }
 
+/** All tools this build knows about. Adding a new tool here is the source
+ *  of truth; the operator activates one by setting `<NAME>_COMMAND` in env. */
+export const KNOWN_TOOLS = ["claude"] as const;
+
 export interface ToolEnvConfig {
   tools: string[];
   /** Per-tool binary path (the deploy-specific bit). The argv list comes from
@@ -45,33 +49,23 @@ export interface ToolEnvConfig {
 }
 
 export function loadToolConfigFromEnv(env: NodeJS.ProcessEnv): ToolEnvConfig {
-  const toolsEnv = env.TOOLS;
-
-  if (toolsEnv === undefined || toolsEnv.length === 0) {
-    throw new Error("Missing required environment variable: TOOLS");
-  }
-
-  const tools = toolsEnv
-    .split(",")
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  if (tools.length === 0) {
-    throw new Error("TOOLS must contain at least one tool name");
-  }
-
+  const tools: string[] = [];
   const commands: Record<string, string> = {};
 
-  for (const name of tools) {
-    const prefix = normalizeToolName(name);
-    const commandKey = `${prefix}_COMMAND`;
-    const command = env[commandKey];
-
-    if (command === undefined || command.length === 0) {
-      throw new Error(`Missing required environment variable: ${commandKey}`);
+  for (const name of KNOWN_TOOLS) {
+    const command = env[`${normalizeToolName(name)}_COMMAND`];
+    if (command !== undefined && command.length > 0) {
+      tools.push(name);
+      commands[name] = command;
     }
+  }
 
-    commands[name] = command;
+  if (tools.length === 0) {
+    throw new Error(
+      `No tool enabled — set at least one <NAME>_COMMAND env var (known: ${KNOWN_TOOLS.join(
+        ", ",
+      )})`,
+    );
   }
 
   return { tools, commands };

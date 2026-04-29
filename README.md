@@ -58,8 +58,9 @@ Required variables:
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY_PATH`
 - `GITHUB_WEBHOOK_SECRET`
-- `TOOLS` (comma-separated list, e.g. `claude`)
-- `<TOOL>_COMMAND` (binary path) for each entry in `TOOLS`
+- `<TOOL>_COMMAND` (binary path) for each tool you want to enable.
+  Known tools are listed in `KNOWN_TOOLS` in `src/services/tool-registry.ts`;
+  at least one must be set or the runner refuses to start.
 - `ALLOWED_SENDER_IDS`
 
 Trigger syntax: comments use `/omgr` (optionally `/omgr implement ...`).
