@@ -193,65 +193,71 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       ),
     logStore,
     pollIntervalMs,
-    rateLimitStateStore,
-    rateLimitCooldownMs,
-    retentionMs: queueRetentionMs,
-    registeredTools: toolConfig.tools,
-    notifyTaskFailure: async (task, errorSummary) => {
-      const body = renderFailure(task, errorSummary);
-      await editStickyOrPost(task, body);
+    rateLimit: {
+      store: rateLimitStateStore,
+      cooldownMs: rateLimitCooldownMs,
+      registeredTools: toolConfig.tools,
     },
-    notifyTaskSucceeded: async (task) => {
-      const notifications = task.notifications;
-      if (notifications === undefined) {
-        return;
-      }
-
-      if (notifications.sticky !== undefined) {
-        try {
-          await githubClient.deleteIssueComment(
-            notifications.sticky.repo,
-            notifications.sticky.commentId,
-          );
-        } catch (error) {
-          console.warn(
-            `[daemon] failed to delete sticky comment for task=${task.taskId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
+    notifications: {
+      onFailure: async (task, errorSummary) => {
+        const body = renderFailure(task, errorSummary);
+        await editStickyOrPost(task, body);
+      },
+      onSucceeded: async (task) => {
+        const notifications = task.notifications;
+        if (notifications === undefined) {
+          return;
         }
-      }
 
-      if (notifications.trigger !== undefined) {
-        try {
-          await githubClient.deleteReaction(
-            task.repo,
-            notifications.trigger.target,
-            notifications.trigger.reactionId,
-          );
-        } catch (error) {
-          console.warn(
-            `[daemon] failed to delete trigger reaction for task=${task.taskId}: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
+        if (notifications.sticky !== undefined) {
+          try {
+            await githubClient.deleteIssueComment(
+              notifications.sticky.repo,
+              notifications.sticky.commentId,
+            );
+          } catch (error) {
+            console.warn(
+              `[daemon] failed to delete sticky comment for task=${task.taskId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
         }
-      }
+
+        if (notifications.trigger !== undefined) {
+          try {
+            await githubClient.deleteReaction(
+              task.repo,
+              notifications.trigger.target,
+              notifications.trigger.reactionId,
+            );
+          } catch (error) {
+            console.warn(
+              `[daemon] failed to delete trigger reaction for task=${task.taskId}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
+        }
+      },
+      onRateLimited: async (task) => {
+        if (task.notifications?.sticky === undefined) {
+          return;
+        }
+        await editSticky(task, renderRateLimited(task));
+      },
+      onSuperseded: async (task, supersededBy) => {
+        if (task.notifications?.sticky === undefined) {
+          return;
+        }
+        await editSticky(task, renderSuperseded(task, supersededBy));
+      },
     },
-    notifyTaskRateLimited: async (task) => {
-      if (task.notifications?.sticky === undefined) {
-        return;
-      }
-      await editSticky(task, renderRateLimited(task));
+    janitor: {
+      cleanupOrphanWorkspaces: (activeTaskIds) =>
+        workspaceManager.cleanupOrphanWorkspaces(activeTaskIds),
+      retentionMs: queueRetentionMs,
     },
-    notifyTaskSuperseded: async (task, supersededBy) => {
-      if (task.notifications?.sticky === undefined) {
-        return;
-      }
-      await editSticky(task, renderSuperseded(task, supersededBy));
-    },
-    cleanupOrphanWorkspaces: (activeTaskIds) =>
-      workspaceManager.cleanupOrphanWorkspaces(activeTaskIds),
   });
 
   async function editSticky(task: TaskRecord, body: string): Promise<void> {
