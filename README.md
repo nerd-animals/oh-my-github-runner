@@ -60,3 +60,11 @@ Required variables:
 Useful files:
 
 - systemd unit: [oh-my-github-runner.service](ops/systemd/oh-my-github-runner.service)
+
+## Forking / self-hosting
+
+The runner does not embed any owner/repo identity in `src/`, so a fork
+is mostly an external-resources exercise (new GitHub App, Cloudflare
+tunnel, tailnet). See the
+[Forking checklist](docs/deployment.md#forking-checklist) in the
+deployment doc for the short list of values you must replace.

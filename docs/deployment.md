@@ -2,6 +2,10 @@
 
 Single Oracle VM deployment of the runner. Two long-running processes:
 
+> Forking this repo? See [Forking checklist](#forking-checklist) at the
+> bottom for the short list of values you must replace before the
+> runner can serve your account.
+
 - `oh-my-github-runner.service` — Node.js daemon (queue + webhook server,
   bound to `127.0.0.1:${WEBHOOK_PORT}`)
 - `cloudflared.service` — Cloudflare tunnel that exposes
@@ -48,7 +52,8 @@ script) from clobbering an in-progress edit.
 sudo mkdir -p /etc/oh-my-github-runner
 
 # fetch + first build (deploy clone)
-git clone https://github.com/SanGyuk-Raccoon/oh-my-github-runner.git \
+# Replace <your-fork> with the GitHub owner of the fork the VM should track.
+git clone https://github.com/<your-fork>/oh-my-github-runner.git \
   /home/ubuntu/runner-deploy
 cd /home/ubuntu/runner-deploy
 npm ci
@@ -152,14 +157,17 @@ Repository → Settings → Secrets and variables → Actions → Secrets:
 - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` — from Tailscale admin →
   OAuth clients (scope `tag:gh-deploy`)
 
-Hostname (`ubuntu@github-runner`) is hardcoded in
-`.github/workflows/deploy.yml`; if the VM is renamed or the SSH login
-changes, edit the workflow.
+Hostname (`ubuntu@github-runner`) is hardcoded on
+[`.github/workflows/deploy.yml:40`](../.github/workflows/deploy.yml);
+if the VM is renamed, the SSH login changes, or you are forking this
+repo, edit that line to your `<ssh-user>@<tailnet-host>` (or pull it
+out into a `vars.DEPLOY_SSH_TARGET` repo variable — see the
+[Forking checklist](#forking-checklist)).
 
 Tailnet ACL must allow `tag:gh-deploy` → `tag:server` over SSH and
-permit `ubuntu` under Tailscale SSH (`autogroup:nonroot` or explicit
-`ubuntu`). Both tags reuse the tailnet's existing definitions; no new
-tags are introduced for this repo.
+permit the SSH login user under Tailscale SSH (`autogroup:nonroot` or
+explicit `ubuntu`). Both tags reuse the tailnet's existing
+definitions; no new tags are introduced for this repo.
 
 ### Verifying the deploy
 
@@ -201,7 +209,7 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   running tasks to drain before reset/restart, so the normal push flow
   no longer trips this path; `recoverRunningTasks` is reserved for actual
   crashes.
-- Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'`
+- Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'` (replace the `ubuntu@github-runner` host with your VM's tailnet target if you forked)
 - Deploy waits for running tasks to drain before resetting and restarting
   (counts files in `var/queue/running/`, polling every 5s, override via
   `RUNNER_DEPLOY_POLL_SEC`). The wait has no internal timeout — the
@@ -224,3 +232,45 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   runner ever forgets that invariant.
 - **Required status checks on PRs**: none in v1; build/test runs
   locally on the VM only at deploy time.
+
+## Forking checklist
+
+The runner does not bake any owner/repo identity into `src/` — webhook
+payloads supply the repo at runtime. To run your own copy you only have
+to:
+
+1. **Fork** this repository to your own GitHub account/org.
+2. **Create a new GitHub App** under your account with the permissions
+   and event subscriptions listed in [Prerequisites](#prerequisites).
+   Webhook URL: `https://<your-runner-host>/webhook`. Save the App ID,
+   webhook secret, and `.pem` private key.
+3. **Install the App** on every repo you want the runner to serve.
+4. **Provision the VM** (Ubuntu + Node 20 + git + cloudflared + the
+   agent CLI such as `claude`). Bring it up on your tailnet with
+   `tailscale up --ssh --advertise-tags=tag:server`.
+5. **Cloudflare tunnel + DNS** for `<your-runner-host>` per
+   [`ops/cloudflared/config.example.yml`](../ops/cloudflared/config.example.yml).
+6. **Fill `/etc/oh-my-github-runner/runner.env`** from
+   [`.env.example`](../.env.example) with your `GITHUB_APP_ID`,
+   `GITHUB_APP_PRIVATE_KEY_PATH`, `GITHUB_WEBHOOK_SECRET`,
+   `ALLOWED_SENDER_IDS` (your GitHub user id — find it with
+   `gh api /users/<login> --jq .id`), and the agent command.
+7. **Set repo Secrets** for the deploy workflow:
+   - `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`
+8. **Update the SSH target** on
+   [`.github/workflows/deploy.yml:40`](../.github/workflows/deploy.yml)
+   from `ubuntu@github-runner` to your `<ssh-user>@<tailnet-host>`.
+   (Recommended one-time refactor: replace that literal with
+   `${{ vars.DEPLOY_SSH_TARGET || 'ubuntu@github-runner' }}` and set a
+   `DEPLOY_SSH_TARGET` repo variable; this keeps the original repo
+   working and lets every subsequent fork override via a variable
+   instead of editing the workflow. The current PR cannot make this
+   change because the `oh-my-github-runner` GitHub App lacks the
+   `workflows` permission.)
+9. **Update the clone URL** in the install snippet above to point at
+   your fork.
+
+Nothing else in this repo embeds an owner/repo identity. The
+integration test fixtures reference `nerd-animals/oh-my-github-runner`
+but that string never reaches runtime — leave it as-is unless you want
+to point the integration suite at your own test repo.
