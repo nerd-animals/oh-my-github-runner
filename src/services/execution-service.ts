@@ -7,7 +7,7 @@ import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
 import { ExecutionPromptBuilder } from "../domain/rules/execution-prompt.js";
 import { buildBranchName } from "../domain/rules/task-naming.js";
 import type { PromptAssets } from "../infra/prompts/prompt-asset-loader.js";
-import type { CleanupAgentArtifacts } from "../infra/agent/claude-projects-cleaner.js";
+import type { CleanupAgentArtifacts } from "../domain/ports/agent-artifact-cleaner.js";
 import type { AgentRegistry } from "./agent-registry.js";
 
 export interface ExecutionServiceDependencies {

@@ -1,5 +1,6 @@
 import { rm, stat } from "node:fs/promises";
 import path from "node:path";
+import type { CleanupAgentArtifacts } from "../../domain/ports/agent-artifact-cleaner.js";
 
 export function encodeProjectsDirName(absolutePath: string): string {
   return absolutePath.replace(/[^a-zA-Z0-9]/g, "-");
@@ -18,8 +19,6 @@ export interface ClaudeProjectsCleanerOptions {
   claudeHome: string;
   fs?: ClaudeProjectsCleanerFs;
 }
-
-export type CleanupAgentArtifacts = (workspacePath: string) => Promise<void>;
 
 export function createClaudeProjectsCleaner(
   options: ClaudeProjectsCleanerOptions,
