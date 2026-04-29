@@ -3,7 +3,7 @@ import type { TaskRecord } from "../task.js";
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
   maxConcurrency: number;
-  pausedAgents?: ReadonlySet<string>;
+  pausedTools?: ReadonlySet<string>;
 }
 
 // Pure FIFO scheduling against the concurrency budget, skipping any
@@ -13,7 +13,7 @@ export interface SelectNextTasksInput {
 // and same-source duplicate triggers are handled by supersede-on-enqueue
 // rather than by holding back the second task in the scheduler.
 export function selectNextTasks(input: SelectNextTasksInput): string[] {
-  const pausedAgents = input.pausedAgents ?? new Set<string>();
+  const pausedTools = input.pausedTools ?? new Set<string>();
   const runningCount = input.tasks.filter(
     (task) => task.status === "running",
   ).length;
@@ -28,7 +28,7 @@ export function selectNextTasks(input: SelectNextTasksInput): string[] {
     if (selected.length >= slots) {
       break;
     }
-    if (pausedAgents.has(task.tool)) {
+    if (pausedTools.has(task.tool)) {
       continue;
     }
     selected.push(task.taskId);

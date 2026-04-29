@@ -1,16 +1,16 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { loadAgentRateLimitConfig } from "../../src/infra/agent/agent-rate-limit-config.js";
+import { loadToolRateLimitConfig } from "../../src/infra/tool/tool-rate-limit-config.js";
 
-describe("loadAgentRateLimitConfig", () => {
-  test("returns an empty config when the agent yaml does not exist", async () => {
+describe("loadToolRateLimitConfig", () => {
+  test("returns an empty config when the tool yaml does not exist", async () => {
     const dir = await mkdtemp(join(tmpdir(), "agent-config-"));
 
     try {
-      const config = await loadAgentRateLimitConfig(dir, "missing");
+      const config = await loadToolRateLimitConfig(dir, "missing");
 
       assert.deepEqual(config.exitCodes, []);
       assert.deepEqual(config.stderrPatterns, []);
@@ -35,7 +35,7 @@ describe("loadAgentRateLimitConfig", () => {
         "utf8",
       );
 
-      const config = await loadAgentRateLimitConfig(dir, "claude");
+      const config = await loadToolRateLimitConfig(dir, "claude");
 
       assert.deepEqual(config.exitCodes, [137, 143]);
       assert.equal(config.stderrPatterns.length, 2);
@@ -47,13 +47,13 @@ describe("loadAgentRateLimitConfig", () => {
   });
 
   test("the shipped claude.yaml matches both observed rate-limit phrasings", async () => {
-    const config = await loadAgentRateLimitConfig(
-      "definitions/agents",
+    const config = await loadToolRateLimitConfig(
+      "definitions/tools",
       "claude",
     );
 
     const orgLimit = "You've hit your org's monthly usage limit";
-    const userLimit = "You've hit your limit · resets 11:30am (UTC)";
+    const userLimit = "You've hit your limit 쨌 resets 11:30am (UTC)";
     const jsonEnvelope = '"api_error_status": 429,';
 
     const matches = (sample: string): boolean =>
@@ -71,7 +71,7 @@ describe("loadAgentRateLimitConfig", () => {
     try {
       await writeFile(join(dir, "claude.yaml"), "", "utf8");
 
-      const config = await loadAgentRateLimitConfig(dir, "claude");
+      const config = await loadToolRateLimitConfig(dir, "claude");
 
       assert.deepEqual(config.exitCodes, []);
       assert.deepEqual(config.stderrPatterns, []);

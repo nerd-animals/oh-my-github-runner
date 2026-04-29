@@ -2,26 +2,26 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
 
-export interface AgentRateLimitConfig {
+export interface ToolRateLimitConfig {
   exitCodes: number[];
   stderrPatterns: RegExp[];
 }
 
-interface RawAgentRateLimitConfig {
+interface RawToolRateLimitConfig {
   exit_codes?: number[];
   stderr_patterns?: string[];
 }
 
-const EMPTY_CONFIG: AgentRateLimitConfig = {
+const EMPTY_CONFIG: ToolRateLimitConfig = {
   exitCodes: [],
   stderrPatterns: [],
 };
 
-export async function loadAgentRateLimitConfig(
+export async function loadToolRateLimitConfig(
   definitionsDir: string,
-  agentName: string,
-): Promise<AgentRateLimitConfig> {
-  const filePath = path.resolve(definitionsDir, `${agentName}.yaml`);
+  toolName: string,
+): Promise<ToolRateLimitConfig> {
+  const filePath = path.resolve(definitionsDir, `${toolName}.yaml`);
 
   let raw: string;
 
@@ -41,7 +41,7 @@ export async function loadAgentRateLimitConfig(
     throw error;
   }
 
-  const parsed = (parse(raw) ?? {}) as RawAgentRateLimitConfig;
+  const parsed = (parse(raw) ?? {}) as RawToolRateLimitConfig;
 
   return {
     exitCodes: Array.isArray(parsed.exit_codes) ? [...parsed.exit_codes] : [],

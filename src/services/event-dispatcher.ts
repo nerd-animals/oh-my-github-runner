@@ -5,7 +5,7 @@ import {
   resolveInstructionId,
   type RoutingRule,
 } from "../domain/rules/event-routing.js";
-import type { AgentRegistry } from "./agent-registry.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 export interface PullRequestState {
   number: number;
@@ -68,7 +68,7 @@ export type DispatchAction =
     };
 
 export interface EventDispatcherDependencies {
-  agentRegistry: Pick<AgentRegistry, "has" | "getDefaultAgent">;
+  toolRegistry: Pick<ToolRegistry, "has" | "getDefaultTool">;
   botUserId: number;
   allowedSenderIds: ReadonlySet<number>;
   noAiLabel?: string;
@@ -138,7 +138,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: this.deps.agentRegistry.getDefaultAgent(),
+      tool: this.deps.toolRegistry.getDefaultTool(),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -155,7 +155,7 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.agentRegistry.has(parsed.tool)) {
+    if (!this.deps.toolRegistry.has(parsed.tool)) {
       return {
         kind: "ignore",
         reason: `tool '${parsed.tool}' is not registered`,
@@ -198,7 +198,7 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.agentRegistry.has(parsed.tool)) {
+    if (!this.deps.toolRegistry.has(parsed.tool)) {
       return {
         kind: "ignore",
         reason: `tool '${parsed.tool}' is not registered`,

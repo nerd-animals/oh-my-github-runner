@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
@@ -89,7 +89,7 @@ describe("RunnerDaemon", () => {
     ]);
   });
 
-  test("reverts to queued and pauses the agent when execution returns a rate_limited result", async () => {
+  test("reverts to queued and pauses the tool when execution returns a rate_limited result", async () => {
     const calls: string[] = [];
     let currentTask = createTask("queued");
     const pauses: Array<{ tool: string; pausedUntil: number }> = [];
@@ -368,7 +368,7 @@ describe("RunnerDaemon", () => {
     assert.deepEqual(notifiedSucceeded, ["task_1"]);
   });
 
-  test("calls notifyTaskRateLimited before pausing the agent", async () => {
+  test("calls notifyTaskRateLimited before pausing the tool", async () => {
     const notifiedRateLimited: string[] = [];
     let currentTask = createTask("queued");
 

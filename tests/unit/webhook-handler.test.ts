@@ -50,9 +50,9 @@ function buildHarness(options: HarnessOptions = {}): Harness {
   let nextCommentId = 1000;
 
   const dispatcher = new EventDispatcher({
-    agentRegistry: {
+    toolRegistry: {
       has: (name: string) => name === "claude",
-      getDefaultAgent: () => "claude",
+      getDefaultTool: () => "claude",
     },
     botUserId,
     allowedSenderIds: new Set([1, 100, 200]),
@@ -168,7 +168,7 @@ describe("WebhookHandler", () => {
     assert.equal(harness.enqueued.length, 1);
   });
 
-  test("issue.opened from our own bot still enqueues — bot self-loop check is bypassed for opens", async () => {
+  test("issue.opened from our own bot still enqueues - bot self-loop check is bypassed for opens", async () => {
     const harness = buildHarness();
     const payload = {
       ...repoBlock,
@@ -283,7 +283,7 @@ describe("WebhookHandler", () => {
     assert.equal(harness.enqueued.length, 0);
   });
 
-  test("posts a sticky comment with the task id and adds 👀 reaction on issues.opened", async () => {
+  test("posts a sticky comment with the task id and adds ?? reaction on issues.opened", async () => {
     const harness = buildHarness({
       generateTaskId: () => "task_fixed_123",
     });
@@ -409,9 +409,9 @@ describe("WebhookHandler", () => {
   test("enqueue still proceeds when reaction API throws", async () => {
     const enqueued: QueueTaskInput[] = [];
     const dispatcher = new EventDispatcher({
-      agentRegistry: {
+      toolRegistry: {
         has: (name: string) => name === "claude",
-        getDefaultAgent: () => "claude",
+        getDefaultTool: () => "claude",
       },
       botUserId,
       allowedSenderIds: new Set([100]),

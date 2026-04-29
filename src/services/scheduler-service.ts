@@ -7,7 +7,7 @@ export interface SchedulerServiceOptions {
 
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
-  pausedAgents?: ReadonlySet<string>;
+  pausedTools?: ReadonlySet<string>;
 }
 
 export class SchedulerService {

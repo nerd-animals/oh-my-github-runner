@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,9 +25,9 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       });
 
       const dispatcher = new EventDispatcher({
-        agentRegistry: {
+        toolRegistry: {
           has: (name) => name === "claude",
-          getDefaultAgent: () => "claude",
+          getDefaultTool: () => "claude",
         },
         botUserId: 9999,
         allowedSenderIds: new Set([42, 100, 200]),

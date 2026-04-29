@@ -1,17 +1,17 @@
-import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
-import type { AgentRateLimitConfig } from "./agent-rate-limit-config.js";
-import type { AgentRunner } from "../../domain/ports/agent-runner.js";
+import type { ToolRunInput, ToolRunResult } from "../../domain/tool.js";
+import type { ToolRateLimitConfig } from "./tool-rate-limit-config.js";
+import type { ToolRunner } from "../../domain/ports/tool-runner.js";
 
-export interface RateLimitDetectingAgentRunnerOptions {
-  inner: AgentRunner;
-  agentName: string;
-  config: AgentRateLimitConfig;
+export interface RateLimitDetectingToolRunnerOptions {
+  inner: ToolRunner;
+  toolName: string;
+  config: ToolRateLimitConfig;
 }
 
-export class RateLimitDetectingAgentRunner implements AgentRunner {
-  constructor(private readonly options: RateLimitDetectingAgentRunnerOptions) {}
+export class RateLimitDetectingToolRunner implements ToolRunner {
+  constructor(private readonly options: RateLimitDetectingToolRunnerOptions) {}
 
-  async run(input: AgentRunInput): Promise<AgentRunResult> {
+  async run(input: ToolRunInput): Promise<ToolRunResult> {
     const result = await this.options.inner.run(input);
 
     if (result.kind !== "failed") {
@@ -23,7 +23,7 @@ export class RateLimitDetectingAgentRunner implements AgentRunner {
     if (signal !== null) {
       return {
         kind: "rate_limited",
-        agentName: this.options.agentName,
+        toolName: this.options.toolName,
         signal,
       };
     }
@@ -32,7 +32,7 @@ export class RateLimitDetectingAgentRunner implements AgentRunner {
   }
 
   private matchingSignal(
-    result: AgentRunResult & { kind: "failed" },
+    result: ToolRunResult & { kind: "failed" },
   ): string | null {
     if (this.options.config.exitCodes.includes(result.exitCode)) {
       return `exit_code=${result.exitCode}`;

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { EventDispatcher } from "../../src/services/event-dispatcher.js";
 import type {
@@ -13,9 +13,9 @@ function makeDispatcher(options?: {
   allowedSenderIds?: ReadonlySet<number>;
 }): EventDispatcher {
   return new EventDispatcher({
-    agentRegistry: {
+    toolRegistry: {
       has: (name: string) => name === "claude",
-      getDefaultAgent: () => "claude",
+      getDefaultTool: () => "claude",
     },
     botUserId: options?.botUserId ?? 9999,
     allowedSenderIds: options?.allowedSenderIds ?? new Set([100, 101, 102]),

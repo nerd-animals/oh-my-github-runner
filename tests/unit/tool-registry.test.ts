@@ -1,73 +1,73 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { AgentRunner } from "../../src/domain/ports/agent-runner.js";
+import type { ToolRunner } from "../../src/domain/ports/tool-runner.js";
 import {
-  AgentRegistry,
-  loadAgentConfigFromEnv,
-  normalizeAgentName,
-} from "../../src/services/agent-registry.js";
+  ToolRegistry,
+  loadToolConfigFromEnv,
+  normalizeToolName,
+} from "../../src/services/tool-registry.js";
 
-const stubRunner: AgentRunner = {
+const stubRunner: ToolRunner = {
   run: async () => ({ kind: "succeeded", stdout: "" }),
 };
 
-describe("normalizeAgentName", () => {
+describe("normalizeToolName", () => {
   test("uppercases and replaces hyphens with underscores", () => {
-    assert.equal(normalizeAgentName("claude"), "CLAUDE");
-    assert.equal(normalizeAgentName("codex-cli"), "CODEX_CLI");
-    assert.equal(normalizeAgentName("foo-bar-baz"), "FOO_BAR_BAZ");
+    assert.equal(normalizeToolName("claude"), "CLAUDE");
+    assert.equal(normalizeToolName("codex-cli"), "CODEX_CLI");
+    assert.equal(normalizeToolName("foo-bar-baz"), "FOO_BAR_BAZ");
   });
 });
 
-describe("AgentRegistry", () => {
-  test("resolves a registered agent runner", () => {
-    const registry = new AgentRegistry(
+describe("ToolRegistry", () => {
+  test("resolves a registered tool runner", () => {
+    const registry = new ToolRegistry(
       [{ name: "claude", runner: stubRunner }],
       "claude",
     );
 
     assert.equal(registry.resolve("claude"), stubRunner);
     assert.equal(registry.has("claude"), true);
-    assert.equal(registry.getDefaultAgent(), "claude");
-    assert.deepEqual(registry.listAgents(), ["claude"]);
+    assert.equal(registry.getDefaultTool(), "claude");
+    assert.deepEqual(registry.listTools(), ["claude"]);
   });
 
-  test("throws when resolving an unknown agent", () => {
-    const registry = new AgentRegistry(
+  test("throws when resolving an unknown tool", () => {
+    const registry = new ToolRegistry(
       [{ name: "claude", runner: stubRunner }],
       "claude",
     );
 
-    assert.throws(() => registry.resolve("codex"), /Unknown agent: codex/);
+    assert.throws(() => registry.resolve("codex"), /Unknown tool: codex/);
   });
 
-  test("rejects a default agent that is not registered", () => {
+  test("rejects a default tool that is not registered", () => {
     assert.throws(
       () =>
-        new AgentRegistry([{ name: "claude", runner: stubRunner }], "codex"),
+        new ToolRegistry([{ name: "claude", runner: stubRunner }], "codex"),
       /DEFAULT_AGENT 'codex' is not in the AGENTS registry/,
     );
   });
 });
 
-describe("loadAgentConfigFromEnv", () => {
-  test("parses a single-agent env block", () => {
-    const config = loadAgentConfigFromEnv({
+describe("loadToolConfigFromEnv", () => {
+  test("parses a single-tool env block", () => {
+    const config = loadToolConfigFromEnv({
       AGENTS: "claude",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
       CLAUDE_ARGS_JSON: '["-p"]',
     });
 
-    assert.deepEqual(config.agents, ["claude"]);
-    assert.equal(config.defaultAgent, "claude");
+    assert.deepEqual(config.tools, ["claude"]);
+    assert.equal(config.defaultTool, "claude");
     assert.deepEqual(config.commands.claude, {
       command: "/usr/local/bin/claude",
       args: ["-p"],
     });
   });
 
-  test("normalizes hyphenated agent names to env var prefixes", () => {
-    const config = loadAgentConfigFromEnv({
+  test("normalizes hyphenated tool names to env var prefixes", () => {
+    const config = loadToolConfigFromEnv({
       AGENTS: "codex-cli",
       "CODEX_CLI_COMMAND": "/usr/local/bin/codex",
     });
@@ -78,31 +78,31 @@ describe("loadAgentConfigFromEnv", () => {
     });
   });
 
-  test("uses the first agent as the default when DEFAULT_AGENT is unset", () => {
-    const config = loadAgentConfigFromEnv({
+  test("uses the first tool as the default when DEFAULT_AGENT is unset", () => {
+    const config = loadToolConfigFromEnv({
       AGENTS: "claude,codex",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
       CODEX_COMMAND: "/usr/local/bin/codex",
     });
 
-    assert.equal(config.defaultAgent, "claude");
+    assert.equal(config.defaultTool, "claude");
   });
 
   test("honors DEFAULT_AGENT when set", () => {
-    const config = loadAgentConfigFromEnv({
+    const config = loadToolConfigFromEnv({
       AGENTS: "claude,codex",
       DEFAULT_AGENT: "codex",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
       CODEX_COMMAND: "/usr/local/bin/codex",
     });
 
-    assert.equal(config.defaultAgent, "codex");
+    assert.equal(config.defaultTool, "codex");
   });
 
   test("rejects DEFAULT_AGENT not in AGENTS", () => {
     assert.throws(
       () =>
-        loadAgentConfigFromEnv({
+        loadToolConfigFromEnv({
           AGENTS: "claude",
           DEFAULT_AGENT: "codex",
           CLAUDE_COMMAND: "/usr/local/bin/claude",
@@ -113,15 +113,15 @@ describe("loadAgentConfigFromEnv", () => {
 
   test("rejects missing AGENTS env", () => {
     assert.throws(
-      () => loadAgentConfigFromEnv({}),
+      () => loadToolConfigFromEnv({}),
       /Missing required environment variable: AGENTS/,
     );
   });
 
-  test("rejects missing per-agent COMMAND env", () => {
+  test("rejects missing per-tool COMMAND env", () => {
     assert.throws(
       () =>
-        loadAgentConfigFromEnv({
+        loadToolConfigFromEnv({
           AGENTS: "claude",
         }),
       /Missing required environment variable: CLAUDE_COMMAND/,

@@ -1,6 +1,6 @@
 import type { TaskRecord } from "./task.js";
 
-export interface AgentRunInput {
+export interface ToolRunInput {
   task: TaskRecord;
   workspacePath: string;
   prompt: string;
@@ -15,7 +15,7 @@ export interface AgentRunInput {
   signal?: AbortSignal;
 }
 
-export type AgentRunResult =
+export type ToolRunResult =
   | { kind: "succeeded"; stdout: string }
   | { kind: "failed"; exitCode: number; stdout: string; stderr: string }
-  | { kind: "rate_limited"; agentName: string; signal: string };
+  | { kind: "rate_limited"; toolName: string; signal: string };

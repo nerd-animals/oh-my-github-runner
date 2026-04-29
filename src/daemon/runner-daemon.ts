@@ -19,7 +19,7 @@ export interface RunnerDaemonDependencies {
   pollIntervalMs: number;
   rateLimitStateStore?: Pick<RateLimitStateStore, "loadActivePauses" | "pause">;
   rateLimitCooldownMs?: number;
-  registeredAgents?: readonly string[];
+  registeredTools?: readonly string[];
   idleWarningIntervalMs?: number;
   retentionMs?: number;
   pruneIntervalMs?: number;
@@ -116,14 +116,14 @@ export class RunnerDaemon {
   async tick(): Promise<void> {
     await this.maybePrune(false);
     const tasks = await this.dependencies.queueStore.listTasks();
-    const pausedAgents = await this.loadPausedAgents();
+    const pausedTools = await this.loadPausedTools();
     const nextTaskIds = this.dependencies.schedulerService.selectNextTasks({
       tasks,
-      pausedAgents,
+      pausedTools,
     });
 
     if (nextTaskIds.length === 0) {
-      this.maybeWarnAllAgentsPaused(tasks, pausedAgents);
+      this.maybeWarnAllToolsPaused(tasks, pausedTools);
     }
 
     for (const taskId of nextTaskIds) {
@@ -234,7 +234,7 @@ export class RunnerDaemon {
     }
   }
 
-  private async loadPausedAgents(): Promise<ReadonlySet<string>> {
+  private async loadPausedTools(): Promise<ReadonlySet<string>> {
     if (this.dependencies.rateLimitStateStore === undefined) {
       return new Set();
     }
@@ -243,17 +243,17 @@ export class RunnerDaemon {
     return new Set(active.keys());
   }
 
-  private maybeWarnAllAgentsPaused(
+  private maybeWarnAllToolsPaused(
     tasks: TaskRecord[],
-    pausedAgents: ReadonlySet<string>,
+    pausedTools: ReadonlySet<string>,
   ): void {
-    const registered = this.dependencies.registeredAgents ?? [];
+    const registered = this.dependencies.registeredTools ?? [];
 
     if (registered.length === 0) {
       return;
     }
 
-    if (!registered.every((agent) => pausedAgents.has(agent))) {
+    if (!registered.every((tool) => pausedTools.has(tool))) {
       return;
     }
 
@@ -269,7 +269,7 @@ export class RunnerDaemon {
 
     this.lastIdleWarningAt = now;
     this.warn(
-      `All registered agents are rate-limited (${registered.join(", ")}); queued tasks are blocked until pauses expire.`,
+      `All registered tools are rate-limited (${registered.join(", ")}); queued tasks are blocked until pauses expire.`,
     );
   }
 

@@ -10,10 +10,10 @@ import { EnqueueService } from "./services/enqueue-service.js";
 import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
-import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
-import { createClaudeProjectsCleaner } from "./infra/agent/claude-projects-cleaner.js";
-import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detecting-agent-runner.js";
-import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
+import { HeadlessCommandToolRunner } from "./infra/tool/headless-command-tool-runner.js";
+import { createClaudeProjectsCleaner } from "./infra/tool/claude-projects-cleaner.js";
+import { RateLimitDetectingToolRunner } from "./infra/tool/rate-limit-detecting-tool-runner.js";
+import { loadToolRateLimitConfig } from "./infra/tool/tool-rate-limit-config.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -21,9 +21,9 @@ import { PromptRenderer } from "./infra/prompts/prompt-renderer.js";
 import { ToolkitFactory } from "./services/toolkit.js";
 import { getStrategy } from "./strategies/index.js";
 import {
-  AgentRegistry,
-  loadAgentConfigFromEnv,
-} from "./services/agent-registry.js";
+  ToolRegistry,
+  loadToolConfigFromEnv,
+} from "./services/tool-registry.js";
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
@@ -110,7 +110,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const workspacesDir = path.join(runnerRoot, "var", "workspaces");
   const claudeHome =
     process.env.CLAUDE_HOME ?? path.join(os.homedir(), ".claude");
-  const cleanupAgentArtifacts = createClaudeProjectsCleaner({
+  const cleanupToolArtifacts = createClaudeProjectsCleaner({
     workspacesDir,
     claudeHome,
   });
@@ -130,35 +130,35 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       ? { githubWebBaseUrl: process.env.GITHUB_WEB_BASE_URL }
       : {}),
   });
-  const agentConfig = loadAgentConfigFromEnv(process.env);
-  const agentDefinitionsDir = path.join(
+  const toolConfig = loadToolConfigFromEnv(process.env);
+  const toolDefinitionsDir = path.join(
     runnerRoot,
     "definitions",
-    "agents",
+    "tools",
   );
-  const agentEntries = await Promise.all(
-    agentConfig.agents.map(async (name) => {
-      const rateLimitConfig = await loadAgentRateLimitConfig(
-        agentDefinitionsDir,
+  const toolEntries = await Promise.all(
+    toolConfig.tools.map(async (name) => {
+      const rateLimitConfig = await loadToolRateLimitConfig(
+        toolDefinitionsDir,
         name,
       );
-      const inner = new HeadlessCommandAgentRunner({
-        command: agentConfig.commands[name]!.command,
-        args: agentConfig.commands[name]!.args,
+      const inner = new HeadlessCommandToolRunner({
+        command: toolConfig.commands[name]!.command,
+        args: toolConfig.commands[name]!.args,
         processRunner,
       });
 
       return {
         name,
-        runner: new RateLimitDetectingAgentRunner({
+        runner: new RateLimitDetectingToolRunner({
           inner,
-          agentName: name,
+          toolName: name,
           config: rateLimitConfig,
         }),
       };
     }),
   );
-  const agentRegistry = new AgentRegistry(agentEntries, agentConfig.defaultAgent);
+  const toolRegistry = new ToolRegistry(toolEntries, toolConfig.defaultTool);
 
   const rateLimitStateStore = new RateLimitStateStore({
     filePath: path.join(runnerRoot, "var", "queue", "state.json"),
@@ -179,10 +179,10 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const toolkitFactory = new ToolkitFactory({
     githubClient,
     workspaceManager,
-    agentRegistry,
+    toolRegistry,
     logStore,
     promptRenderer,
-    cleanupAgentArtifacts,
+    cleanupToolArtifacts,
   });
 
   const daemon = new RunnerDaemon({
@@ -199,7 +199,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     rateLimitStateStore,
     rateLimitCooldownMs,
     retentionMs: queueRetentionMs,
-    registeredAgents: agentConfig.agents,
+    registeredTools: toolConfig.tools,
     notifyTaskFailure: async (task, errorSummary) => {
       const body = renderFailure(task, errorSummary);
       await editStickyOrPost(task, body);
@@ -324,7 +324,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const allowedSenderIds = parseSenderIdAllowlist("ALLOWED_SENDER_IDS");
 
   const dispatcher = new EventDispatcher({
-    agentRegistry,
+    toolRegistry,
     botUserId,
     allowedSenderIds,
   });

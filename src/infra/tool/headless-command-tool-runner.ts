@@ -1,18 +1,18 @@
-import type { AgentRunInput, AgentRunResult } from "../../domain/agent.js";
-import type { AgentRunner } from "../../domain/ports/agent-runner.js";
+import type { ToolRunInput, ToolRunResult } from "../../domain/tool.js";
+import type { ToolRunner } from "../../domain/ports/tool-runner.js";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 
-export interface HeadlessCommandAgentRunnerOptions {
+export interface HeadlessCommandToolRunnerOptions {
   command: string;
   args?: string[];
   processRunner: ProcessRunner;
   extraEnv?: NodeJS.ProcessEnv;
 }
 
-export class HeadlessCommandAgentRunner implements AgentRunner {
-  constructor(private readonly options: HeadlessCommandAgentRunnerOptions) {}
+export class HeadlessCommandToolRunner implements ToolRunner {
+  constructor(private readonly options: HeadlessCommandToolRunnerOptions) {}
 
-  async run(input: AgentRunInput): Promise<AgentRunResult> {
+  async run(input: ToolRunInput): Promise<ToolRunResult> {
     const baseArgs = this.options.args ?? [];
     const toolArgs: string[] = [];
 

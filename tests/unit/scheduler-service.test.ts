@@ -23,7 +23,7 @@ function createTask(
 }
 
 describe("SchedulerService", () => {
-  test("schedules same-repo work concurrently — branch suffix removes the collision", () => {
+  test("schedules same-repo work concurrently - branch suffix removes the collision", () => {
     const scheduler = new SchedulerService({ maxConcurrency: 2 });
 
     const selected = scheduler.selectNextTasks({
@@ -36,7 +36,7 @@ describe("SchedulerService", () => {
     assert.deepEqual(selected, ["task_queued"]);
   });
 
-  test("skips queued tasks whose agent is paused", () => {
+  test("skips queued tasks whose tool is paused", () => {
     const scheduler = new SchedulerService({ maxConcurrency: 2 });
 
     const selected = scheduler.selectNextTasks({
@@ -44,7 +44,7 @@ describe("SchedulerService", () => {
         createTask("task_paused", "queued", "repo-a"),
         createTask("task_active", "queued", "repo-b"),
       ],
-      pausedAgents: new Set(["claude"]),
+      pausedTools: new Set(["claude"]),
     });
 
     assert.deepEqual(selected, []);

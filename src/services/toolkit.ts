@@ -1,5 +1,5 @@
 import type { GitHubSourceContext } from "../domain/github.js";
-import type { CleanupAgentArtifacts } from "../domain/ports/agent-artifact-cleaner.js";
+import type { CleanupToolArtifacts } from "../domain/ports/tool-artifact-cleaner.js";
 import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
@@ -13,15 +13,15 @@ import type {
   DisposableWorkspace,
   Toolkit,
 } from "../strategies/types.js";
-import type { AgentRegistry } from "./agent-registry.js";
+import type { ToolRegistry } from "./tool-registry.js";
 
 export interface ToolkitFactoryOptions {
   githubClient: GitHubClient;
   workspaceManager: WorkspaceManager;
-  agentRegistry: Pick<AgentRegistry, "resolve">;
+  toolRegistry: Pick<ToolRegistry, "resolve">;
   logStore: LogStore;
   promptRenderer: PromptRenderer;
-  cleanupAgentArtifacts: CleanupAgentArtifacts;
+  cleanupToolArtifacts: CleanupToolArtifacts;
 }
 
 export class ToolkitFactory {
@@ -120,7 +120,7 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupAgentArtifacts(handle.workspacePath);
+          await this.options.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
@@ -149,7 +149,7 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupAgentArtifacts(handle.workspacePath);
+          await this.options.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
@@ -174,7 +174,7 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupAgentArtifacts(handle.workspacePath);
+          await this.options.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
@@ -186,21 +186,21 @@ class ToolkitImpl implements Toolkit {
         return {
           kind: "failed",
           errorSummary:
-            "ai.run called before workspace was prepared — call tk.workspace.prepare* first",
+            "ai.run called before workspace was prepared - call tk.workspace.prepare* first",
         };
       }
       if (this.cachedContext === null) {
         return {
           kind: "failed",
           errorSummary:
-            "ai.run called before context was fetched — call tk.github.fetchContext first",
+            "ai.run called before context was fetched - call tk.github.fetchContext first",
         };
       }
       const promptText = this.options.promptRenderer.render(
         opts.prompt,
         this.cachedContext,
       );
-      const result = await this.options.agentRegistry
+      const result = await this.options.toolRegistry
         .resolve(opts.tool)
         .run({
           task: this.task,
@@ -222,10 +222,10 @@ class ToolkitImpl implements Toolkit {
         return { kind: "succeeded", stdout: result.stdout };
       }
       if (result.kind === "rate_limited") {
-        return { kind: "rate_limited", toolName: result.agentName };
+        return { kind: "rate_limited", toolName: result.toolName };
       }
       const errorSummary =
-        (result.stderr || result.stdout).trim() || "agent execution failed";
+        (result.stderr || result.stdout).trim() || "tool execution failed";
       return { kind: "failed", errorSummary };
     },
   };

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { AgentRunInput } from "../../src/domain/agent.js";
+import type { ToolRunInput } from "../../src/domain/tool.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { HeadlessCommandAgentRunner } from "../../src/infra/agent/headless-command-agent-runner.js";
+import { HeadlessCommandToolRunner } from "../../src/infra/tool/headless-command-tool-runner.js";
 import type {
   ProcessRunner,
   RunProcessInput,
@@ -36,15 +36,15 @@ function createRunner(): {
   return { processRunner, calls };
 }
 
-describe("HeadlessCommandAgentRunner", () => {
+describe("HeadlessCommandToolRunner", () => {
   test("forwards GH_TOKEN/GITHUB_TOKEN when an installation token is provided", async () => {
     const { processRunner, calls } = createRunner();
-    const runner = new HeadlessCommandAgentRunner({
+    const runner = new HeadlessCommandToolRunner({
       command: "claude",
       processRunner,
     });
 
-    const runInput: AgentRunInput = {
+    const runInput: ToolRunInput = {
       task,
       workspacePath: "/tmp/ws",
       prompt: "hello",
@@ -60,7 +60,7 @@ describe("HeadlessCommandAgentRunner", () => {
 
   test("appends --allowed-tools and --disallowed-tools to base args", async () => {
     const { processRunner, calls } = createRunner();
-    const runner = new HeadlessCommandAgentRunner({
+    const runner = new HeadlessCommandToolRunner({
       command: "claude",
       args: ["--print"],
       processRunner,
@@ -85,7 +85,7 @@ describe("HeadlessCommandAgentRunner", () => {
 
   test("omits tool flags when neither allowed nor disallowed lists are provided", async () => {
     const { processRunner, calls } = createRunner();
-    const runner = new HeadlessCommandAgentRunner({
+    const runner = new HeadlessCommandToolRunner({
       command: "claude",
       args: ["--print"],
       processRunner,
@@ -98,7 +98,7 @@ describe("HeadlessCommandAgentRunner", () => {
 
   test("forwards timeoutMs to the process runner", async () => {
     const { processRunner, calls } = createRunner();
-    const runner = new HeadlessCommandAgentRunner({
+    const runner = new HeadlessCommandToolRunner({
       command: "claude",
       processRunner,
     });
@@ -121,7 +121,7 @@ describe("HeadlessCommandAgentRunner", () => {
     delete process.env.GITHUB_TOKEN;
 
     try {
-      const runner = new HeadlessCommandAgentRunner({
+      const runner = new HeadlessCommandToolRunner({
         command: "claude",
         processRunner,
       });
