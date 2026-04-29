@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { EventDispatcher } from "../../src/services/event-dispatcher.js";
 import type {
@@ -13,9 +13,6 @@ function makeDispatcher(options?: {
   allowedSenderIds?: ReadonlySet<number>;
 }): EventDispatcher {
   return new EventDispatcher({
-    toolRegistry: {
-      has: (name: string) => name === "claude",
-    },
     resolveStrategyTool: () => "claude",
     botUserId: options?.botUserId ?? 9999,
     allowedSenderIds: options?.allowedSenderIds ?? new Set([100, 101, 102]),
@@ -41,7 +38,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { id: 1, body: "/claude" },
+      comment: { id: 1, body: "/omgr" },
       sender: { id: 1, login: "our-bot" },
     });
 
@@ -79,14 +76,14 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "ignore");
   });
 
-  test("maps /claude on an issue to issue-comment-reply", () => {
+  test("maps /omgr on an issue to issue-comment-reply", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { id: 1, body: "/claude" },
+      comment: { id: 1, body: "/omgr" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -95,14 +92,14 @@ describe("EventDispatcher", () => {
     assert.equal(action.instructionId, "issue-comment-reply");
   });
 
-  test("maps /claude implement on an issue to issue-implement", () => {
+  test("maps /omgr implement on an issue to issue-implement", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "issue_comment",
       repo,
       issue: { number: 12 },
-      comment: { id: 3, body: "/claude implement add tests" },
+      comment: { id: 3, body: "/omgr implement add tests" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -112,14 +109,14 @@ describe("EventDispatcher", () => {
     assert.equal(action.additionalInstructions, "add tests");
   });
 
-  test("maps /claude on a PR to pr-review-comment", () => {
+  test("maps /omgr on a PR to pr-review-comment", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { id: 1, body: "/claude" },
+      comment: { id: 1, body: "/omgr" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -129,14 +126,14 @@ describe("EventDispatcher", () => {
     assert.deepEqual(action.source, { kind: "pull_request", number: 52 });
   });
 
-  test("maps /claude implement on a PR to pr-implement", () => {
+  test("maps /omgr implement on a PR to pr-implement", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -145,14 +142,14 @@ describe("EventDispatcher", () => {
     assert.equal(action.instructionId, "pr-implement");
   });
 
-  test("maps /claude Implement (capitalized) on a PR to pr-implement", () => {
+  test("maps /omgr Implement (capitalized) on a PR to pr-implement", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52 }),
-      comment: { id: 4, body: "/claude Implement" },
+      comment: { id: 4, body: "/omgr Implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -161,14 +158,14 @@ describe("EventDispatcher", () => {
     assert.equal(action.instructionId, "pr-implement");
   });
 
-  test("rejects /claude implement on a fork PR with a comment", () => {
+  test("rejects /omgr implement on a fork PR with a comment", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, isFork: true }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -177,14 +174,14 @@ describe("EventDispatcher", () => {
     assert.match(action.comment.body, /forks are not supported/);
   });
 
-  test("rejects /claude implement on a merged PR", () => {
+  test("rejects /omgr implement on a merged PR", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, merged: true }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -193,14 +190,14 @@ describe("EventDispatcher", () => {
     assert.match(action.comment.body, /already merged/);
   });
 
-  test("rejects /claude implement on a closed PR", () => {
+  test("rejects /omgr implement on a closed PR", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, state: "closed" }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -209,14 +206,14 @@ describe("EventDispatcher", () => {
     assert.match(action.comment.body, /closed/);
   });
 
-  test("rejects /claude implement when head branch is gone", () => {
+  test("rejects /omgr implement when head branch is gone", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
       kind: "pr_comment",
       repo,
       pr: pr({ number: 52, headRef: null }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 100, login: "alice" },
     });
 
@@ -239,7 +236,7 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "ignore");
   });
 
-  test("ignores commands that target an unregistered tool", () => {
+  test("ignores commands that use a different trigger keyword", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
@@ -252,7 +249,7 @@ describe("EventDispatcher", () => {
 
     assert.equal(action.kind, "ignore");
     if (action.kind !== "ignore") return;
-    assert.match(action.reason, /not registered/);
+    assert.match(action.reason, /no command in comment/);
   });
 
   test("issue.opened bypasses the allowlist (outside collaborators get an initial review)", () => {
@@ -293,7 +290,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 999, login: "stranger" },
     });
 
@@ -309,7 +306,7 @@ describe("EventDispatcher", () => {
       kind: "pr_comment",
       repo,
       pr: pr({ number: 5 }),
-      comment: { id: 2, body: "/claude implement" },
+      comment: { id: 2, body: "/omgr implement" },
       sender: { id: 999, login: "stranger" },
     });
 
@@ -328,7 +325,7 @@ describe("EventDispatcher", () => {
       kind: "issue_comment",
       repo,
       issue: { number: 1 },
-      comment: { id: 1, body: "/claude" },
+      comment: { id: 1, body: "/omgr" },
       sender: { id: 1, login: "our-bot" },
     });
 

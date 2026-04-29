@@ -11,17 +11,15 @@ describe("parseCommand", () => {
     assert.equal(parseCommand("just a comment"), null);
   });
 
-  test("parses a bare /claude as observe with no extra context", () => {
-    assert.deepEqual(parseCommand("/claude"), {
-      tool: "claude",
+  test("parses a bare /omgr as observe with no extra context", () => {
+    assert.deepEqual(parseCommand("/omgr"), {
       verb: null,
       additionalInstructions: "",
     });
   });
 
-  test("parses /claude implement as implement with no extra context", () => {
-    assert.deepEqual(parseCommand("/claude implement"), {
-      tool: "claude",
+  test("parses /omgr implement as implement with no extra context", () => {
+    assert.deepEqual(parseCommand("/omgr implement"), {
       verb: "implement",
       additionalInstructions: "",
     });
@@ -29,30 +27,27 @@ describe("parseCommand", () => {
 
   test("collects rest of line as additional instructions for implement", () => {
     assert.deepEqual(
-      parseCommand("/claude implement add a logging hook to the runner"),
+      parseCommand("/omgr implement add a logging hook to the runner"),
       {
-        tool: "claude",
         verb: "implement",
         additionalInstructions: "add a logging hook to the runner",
       },
     );
   });
 
-  test("treats free text after /claude as additional context for observe", () => {
-    assert.deepEqual(parseCommand("/claude please review my latest change"), {
-      tool: "claude",
+  test("treats free text after /omgr as additional context for observe", () => {
+    assert.deepEqual(parseCommand("/omgr please review my latest change"), {
       verb: null,
       additionalInstructions: "please review my latest change",
     });
   });
 
   test("appends following lines as additional instructions", () => {
-    const body = ["/claude implement", "use kebab-case for filenames", ""].join(
+    const body = ["/omgr implement", "use kebab-case for filenames", ""].join(
       "\n",
     );
 
     assert.deepEqual(parseCommand(body), {
-      tool: "claude",
       verb: "implement",
       additionalInstructions: "use kebab-case for filenames",
     });
@@ -60,60 +55,60 @@ describe("parseCommand", () => {
 
   test("skips leading blockquote lines and code fences", () => {
     const body = [
-      "> quoted preamble that mentions /codex",
+      "> quoted preamble that mentions /omgr",
       "```",
-      "/codex implement noop",
+      "/omgr implement noop",
       "```",
-      "/claude implement actually do this",
+      "/omgr implement actually do this",
     ].join("\n");
 
     assert.deepEqual(parseCommand(body), {
-      tool: "claude",
       verb: "implement",
       additionalInstructions: "actually do this",
     });
   });
 
   test("ignores commands buried after non-command first line", () => {
-    const body = ["hi there", "/claude implement"].join("\n");
+    const body = ["hi there", "/omgr implement"].join("\n");
     assert.equal(parseCommand(body), null);
   });
 
-  test("preserves the tool token and exposes it for the dispatcher", () => {
-    assert.deepEqual(parseCommand("/codex"), {
-      tool: "codex",
-      verb: null,
+  test("returns null for any trigger keyword other than /omgr", () => {
+    assert.equal(parseCommand("/codex"), null);
+    assert.equal(parseCommand("/claude implement"), null);
+    assert.equal(parseCommand("/runner"), null);
+  });
+
+  test("matches the trigger keyword case-insensitively", () => {
+    assert.deepEqual(parseCommand("/OMGR implement"), {
+      verb: "implement",
       additionalInstructions: "",
     });
   });
 
   test("matches the verb case-insensitively (capitalized)", () => {
-    assert.deepEqual(parseCommand("/claude Implement"), {
-      tool: "claude",
+    assert.deepEqual(parseCommand("/omgr Implement"), {
       verb: "implement",
       additionalInstructions: "",
     });
   });
 
   test("matches the verb case-insensitively with trailing instructions", () => {
-    assert.deepEqual(parseCommand("/claude IMPLEMENT add tests"), {
-      tool: "claude",
+    assert.deepEqual(parseCommand("/omgr IMPLEMENT add tests"), {
       verb: "implement",
       additionalInstructions: "add tests",
     });
   });
 
   test("matches the verb case-insensitively (mixed case)", () => {
-    assert.deepEqual(parseCommand("/claude ImPlEmEnT"), {
-      tool: "claude",
+    assert.deepEqual(parseCommand("/omgr ImPlEmEnT"), {
       verb: "implement",
       additionalInstructions: "",
     });
   });
 
   test("does not match a verb that only starts with a known verb", () => {
-    assert.deepEqual(parseCommand("/claude implementation foo"), {
-      tool: "claude",
+    assert.deepEqual(parseCommand("/omgr implementation foo"), {
       verb: null,
       additionalInstructions: "implementation foo",
     });

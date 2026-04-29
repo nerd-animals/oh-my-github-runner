@@ -324,7 +324,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const allowedSenderIds = parseSenderIdAllowlist("ALLOWED_SENDER_IDS");
 
   const dispatcher = new EventDispatcher({
-    toolRegistry,
     resolveStrategyTool: (instructionId) =>
       getStrategy(instructionId).policies.tool,
     botUserId,

@@ -5,7 +5,6 @@ import {
   resolveInstructionId,
   type RoutingRule,
 } from "../domain/rules/event-routing.js";
-import type { ToolRegistry } from "./tool-registry.js";
 
 export interface PullRequestState {
   number: number;
@@ -68,7 +67,6 @@ export type DispatchAction =
     };
 
 export interface EventDispatcherDependencies {
-  toolRegistry: Pick<ToolRegistry, "has">;
   /** Resolves the tool a given strategy declares in its policies. */
   resolveStrategyTool: (instructionId: string) => string;
   botUserId: number;
@@ -157,13 +155,6 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.toolRegistry.has(parsed.tool)) {
-      return {
-        kind: "ignore",
-        reason: `tool '${parsed.tool}' is not registered`,
-      };
-    }
-
     const instructionId = resolveInstructionId(this.routingRules, {
       eventKind: "issue_comment",
       verb: parsed.verb,
@@ -198,13 +189,6 @@ export class EventDispatcher {
 
     if (parsed === null) {
       return { kind: "ignore", reason: "no command in comment" };
-    }
-
-    if (!this.deps.toolRegistry.has(parsed.tool)) {
-      return {
-        kind: "ignore",
-        reason: `tool '${parsed.tool}' is not registered`,
-      };
     }
 
     const trigger: TriggerLocation = {
@@ -260,7 +244,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: PRs from forks are not supported in v1.",
+          body: "Cannot run `/omgr implement`: PRs from forks are not supported in v1.",
         },
         trigger,
         requestedBy,
@@ -274,7 +258,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: this PR is already merged.",
+          body: "Cannot run `/omgr implement`: this PR is already merged.",
         },
         trigger,
         requestedBy,
@@ -288,7 +272,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: this PR is closed.",
+          body: "Cannot run `/omgr implement`: this PR is closed.",
         },
         trigger,
         requestedBy,
@@ -302,7 +286,7 @@ export class EventDispatcher {
         comment: {
           repo: event.repo,
           issueNumber: event.pr.number,
-          body: "Cannot run `/claude implement`: head branch has been deleted.",
+          body: "Cannot run `/omgr implement`: head branch has been deleted.",
         },
         trigger,
         requestedBy,

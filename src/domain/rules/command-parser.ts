@@ -1,11 +1,11 @@
 export type CommandVerb = "implement" | null;
 
 export interface ParsedCommand {
-  tool: string;
   verb: CommandVerb;
   additionalInstructions: string;
 }
 
+export const TRIGGER_KEYWORD = "omgr";
 const KNOWN_VERBS = new Set<string>(["implement"]);
 const COMMAND_LINE_PATTERN = /^\/(\S+)(?:\s+(.*))?$/;
 const FIRST_TOKEN_PATTERN = /^(\S+)(?:\s+(.*))?$/;
@@ -54,9 +54,9 @@ export function parseCommand(body: unknown): ParsedCommand | null {
     return null;
   }
 
-  const tool = match[1] ?? "";
+  const trigger = (match[1] ?? "").toLowerCase();
 
-  if (tool.length === 0) {
+  if (trigger !== TRIGGER_KEYWORD) {
     return null;
   }
 
@@ -80,5 +80,5 @@ export function parseCommand(body: unknown): ParsedCommand | null {
     .join("\n")
     .trim();
 
-  return { tool, verb, additionalInstructions };
+  return { verb, additionalInstructions };
 }

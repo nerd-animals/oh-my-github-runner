@@ -58,7 +58,7 @@ describe("sticky-comment renderers", () => {
   test("renderRejection uses the rejection marker", () => {
     const body = renderRejection(
       "PR is from a fork",
-      "Cannot run `/claude implement`: PRs from forks are not supported in v1.",
+      "Cannot run `/omgr implement`: PRs from forks are not supported in v1.",
       { requestedBy: "alice", trigger: { kind: "comment", issueNumber: 52, commentId: 1 } },
     );
     assert.ok(body.includes(REJECTION_MARKER));

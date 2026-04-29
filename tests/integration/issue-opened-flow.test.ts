@@ -25,9 +25,6 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       });
 
       const dispatcher = new EventDispatcher({
-        toolRegistry: {
-          has: (name) => name === "claude",
-        },
         resolveStrategyTool: () => "claude",
         botUserId: 9999,
         allowedSenderIds: new Set([42, 100, 200]),
