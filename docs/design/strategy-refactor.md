@@ -24,12 +24,14 @@
 ```ts
 type Strategy = {
   policies: {
-    sourceKind: "issue" | "pull_request";   // enqueue 검증용
-    supersedeOnSameSource: boolean;          // EnqueueService가 읽어서 처리
-    timeoutMs: number;                        // per-strategy (yaml.execution.timeout_sec 대체)
+    supersedeOnSameSource: boolean;   // EnqueueService가 읽어서 처리
+    timeoutMs: number;                 // per-strategy (yaml.execution.timeout_sec 대체)
   };
   run: (task: Task, tk: Toolkit, signal: AbortSignal) => Promise<ExecuteResult>;
 };
+
+// instructionId 자체가 source kind를 함의 (dispatcher가 (eventKind, verb)→id로 라우팅)
+// → strategy 메타에 sourceKind 따로 둘 필요 없음. enqueue 검증도 불필요.
 
 const strategies = new Map<string, Strategy>([
   ["issue-initial-review", issueInitialReviewStrategy],
