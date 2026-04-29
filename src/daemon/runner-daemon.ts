@@ -69,13 +69,14 @@ export class RunnerDaemon {
   async tick(): Promise<void> {
     await this.maybePrune(false);
     const tasks = await this.dependencies.queueStore.listTasks();
-    const instructionsById = await this.loadInstructions(tasks);
     const pausedAgents = await this.loadPausedAgents();
     const nextTaskIds = this.dependencies.schedulerService.selectNextTasks({
       tasks,
-      instructionsById,
       pausedAgents,
     });
+    const instructionsById = await this.loadInstructions(
+      tasks.filter((task) => nextTaskIds.includes(task.taskId)),
+    );
 
     if (nextTaskIds.length === 0) {
       this.maybeWarnAllAgentsPaused(tasks, pausedAgents);

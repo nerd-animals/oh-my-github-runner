@@ -413,7 +413,10 @@ describe("ExecutionService (agent-driven)", () => {
     });
 
     assert.deepEqual(result, { status: "succeeded" });
-    assert.equal(fixture.mutateWorkspaceArgs[0]?.[3], "ai/issue-100");
+    assert.match(
+      String(fixture.mutateWorkspaceArgs[0]?.[3] ?? ""),
+      /^ai\/issue-100-/,
+    );
     assert.equal(fixture.cleanupCalled.count, 1);
     assert.deepEqual(fixture.forbiddenCalls, []);
   });

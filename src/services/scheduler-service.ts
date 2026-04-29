@@ -1,7 +1,4 @@
-import type { InstructionDefinition } from "../domain/instruction.js";
-import {
-  selectNextTasks as selectNextTasksRule,
-} from "../domain/rules/scheduling.js";
+import { selectNextTasks as selectNextTasksRule } from "../domain/rules/scheduling.js";
 import type { TaskRecord } from "../domain/task.js";
 
 export interface SchedulerServiceOptions {
@@ -10,7 +7,6 @@ export interface SchedulerServiceOptions {
 
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
-  instructionsById: Record<string, InstructionDefinition>;
   pausedAgents?: ReadonlySet<string>;
 }
 
