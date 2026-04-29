@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import os from "node:os";
 import { RunnerDaemon } from "./daemon/runner-daemon.js";
 import { Runtime } from "./runtime.js";
 import { FileInstructionLoader } from "./infra/instructions/instruction-loader.js";
@@ -12,6 +13,7 @@ import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { HeadlessCommandAgentRunner } from "./infra/agent/headless-command-agent-runner.js";
+import { createClaudeProjectsCleaner } from "./infra/agent/claude-projects-cleaner.js";
 import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detecting-agent-runner.js";
 import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
 import { buildClaudeToolArgs } from "./infra/agent/agent-tool-policies.js";
@@ -105,6 +107,13 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     logsDir: path.join(runnerRoot, "var", "logs"),
     retentionMs: logRetentionMs,
   });
+  const workspacesDir = path.join(runnerRoot, "var", "workspaces");
+  const claudeHome =
+    process.env.CLAUDE_HOME ?? path.join(os.homedir(), ".claude");
+  const cleanupAgentArtifacts = createClaudeProjectsCleaner({
+    workspacesDir,
+    claudeHome,
+  });
 
   const githubClient = new GitHubAppClient({
     appId: requireEnv("GITHUB_APP_ID"),
@@ -115,7 +124,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   });
   const workspaceManager = new GitWorkspaceManager({
     reposDir: path.join(runnerRoot, "var", "repos"),
-    workspacesDir: path.join(runnerRoot, "var", "workspaces"),
+    workspacesDir,
     processRunner,
     ...(process.env.GITHUB_WEB_BASE_URL !== undefined
       ? { githubWebBaseUrl: process.env.GITHUB_WEB_BASE_URL }
@@ -181,6 +190,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       agentRegistry,
       logStore,
       promptAssets,
+      cleanupAgentArtifacts,
     }),
     logStore,
     pollIntervalMs,

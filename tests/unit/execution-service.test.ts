@@ -129,6 +129,7 @@ interface Fixture {
   agentInputs: AgentRunInput[];
   contextArgs: unknown[][];
   cleanupCalled: { count: number };
+  agentArtifactCleanupArgs: string[];
   observeWorkspaceArgs: unknown[][];
   mutateWorkspaceArgs: unknown[][];
   prImplementWorkspaceArgs: unknown[][];
@@ -146,6 +147,7 @@ function buildFixture(options: BuildOptions = {}): Fixture {
   const mutateWorkspaceArgs: unknown[][] = [];
   const prImplementWorkspaceArgs: unknown[][] = [];
   const forbiddenCalls: { method: string; args: unknown[] }[] = [];
+  const agentArtifactCleanupArgs: string[] = [];
   const installationToken = options.installationToken ?? "ghs_TEST_TOKEN";
 
   const githubClient: GitHubClient = {
@@ -255,6 +257,9 @@ function buildFixture(options: BuildOptions = {}): Fixture {
         mutate: "- Mode: mutate",
       },
     },
+    cleanupAgentArtifacts: async (workspacePath) => {
+      agentArtifactCleanupArgs.push(workspacePath);
+    },
   });
 
   return {
@@ -262,6 +267,7 @@ function buildFixture(options: BuildOptions = {}): Fixture {
     agentInputs,
     contextArgs,
     cleanupCalled,
+    agentArtifactCleanupArgs,
     observeWorkspaceArgs,
     mutateWorkspaceArgs,
     prImplementWorkspaceArgs,
@@ -281,7 +287,42 @@ describe("ExecutionService (agent-driven)", () => {
     assert.deepEqual(result, { status: "succeeded" });
     assert.equal(fixture.agentInputs.length, 1);
     assert.equal(fixture.cleanupCalled.count, 1);
+    assert.deepEqual(fixture.agentArtifactCleanupArgs, ["/tmp/observe"]);
     assert.deepEqual(fixture.forbiddenCalls, []);
+  });
+
+  test("mutate/observe/pr_implement: agent artifacts cleanup runs after workspace cleanup in finally", async () => {
+    const fixtureMutate = buildFixture({ hasChanges: true });
+    await fixtureMutate.service.execute({
+      task: createTask("issue-implement"),
+      instruction: mutateInstruction,
+    });
+    assert.deepEqual(fixtureMutate.agentArtifactCleanupArgs, ["/tmp/mutate"]);
+
+    const fixturePr = buildFixture({ contextOverride: pullRequestContext });
+    await fixturePr.service.execute({
+      task: createTask("pr-implement", { kind: "pull_request", number: 52 }),
+      instruction: prImplementInstruction,
+    });
+    assert.deepEqual(fixturePr.agentArtifactCleanupArgs, ["/tmp/pr-implement"]);
+  });
+
+  test("agent artifacts cleanup runs even when the agent fails", async () => {
+    const fixture = buildFixture({
+      agentRun: async () => ({
+        kind: "failed",
+        exitCode: 2,
+        stdout: "",
+        stderr: "boom",
+      }),
+    });
+
+    await fixture.service.execute({
+      task: createTask("issue-comment-reply"),
+      instruction: observeInstruction,
+    });
+
+    assert.deepEqual(fixture.agentArtifactCleanupArgs, ["/tmp/observe"]);
   });
 
   test("observe: passes the requested instruction context into getSourceContext and the prompt", async () => {
