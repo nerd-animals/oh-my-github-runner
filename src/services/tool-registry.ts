@@ -44,13 +44,11 @@ export interface ToolEnvConfig {
   commands: Record<string, string>;
 }
 
-// NB: AGENTS / <NAME>_COMMAND env-var names are still the pre-rename names —
-// operator-visible env rename stays as a separate follow-up.
 export function loadToolConfigFromEnv(env: NodeJS.ProcessEnv): ToolEnvConfig {
-  const toolsEnv = env.AGENTS;
+  const toolsEnv = env.TOOLS;
 
   if (toolsEnv === undefined || toolsEnv.length === 0) {
-    throw new Error("Missing required environment variable: AGENTS");
+    throw new Error("Missing required environment variable: TOOLS");
   }
 
   const tools = toolsEnv
@@ -59,7 +57,7 @@ export function loadToolConfigFromEnv(env: NodeJS.ProcessEnv): ToolEnvConfig {
     .filter((value) => value.length > 0);
 
   if (tools.length === 0) {
-    throw new Error("AGENTS must contain at least one tool name");
+    throw new Error("TOOLS must contain at least one tool name");
   }
 
   const commands: Record<string, string> = {};

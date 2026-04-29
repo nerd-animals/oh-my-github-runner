@@ -38,7 +38,7 @@ describe("ToolRegistry", () => {
 describe("loadToolConfigFromEnv", () => {
   test("parses a single-tool env block", () => {
     const config = loadToolConfigFromEnv({
-      AGENTS: "claude",
+      TOOLS: "claude",
       CLAUDE_COMMAND: "/usr/local/bin/claude",
     });
 
@@ -48,17 +48,17 @@ describe("loadToolConfigFromEnv", () => {
 
   test("normalizes hyphenated tool names to env var prefixes", () => {
     const config = loadToolConfigFromEnv({
-      AGENTS: "codex-cli",
+      TOOLS: "codex-cli",
       "CODEX_CLI_COMMAND": "/usr/local/bin/codex",
     });
 
     assert.equal(config.commands["codex-cli"], "/usr/local/bin/codex");
   });
 
-  test("rejects missing AGENTS env", () => {
+  test("rejects missing TOOLS env", () => {
     assert.throws(
       () => loadToolConfigFromEnv({}),
-      /Missing required environment variable: AGENTS/,
+      /Missing required environment variable: TOOLS/,
     );
   });
 
@@ -66,7 +66,7 @@ describe("loadToolConfigFromEnv", () => {
     assert.throws(
       () =>
         loadToolConfigFromEnv({
-          AGENTS: "claude",
+          TOOLS: "claude",
         }),
       /Missing required environment variable: CLAUDE_COMMAND/,
     );
