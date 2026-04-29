@@ -4,10 +4,12 @@ Single-VM queue consumer and executor for GitHub-native AI coding tasks.
 
 ## Layout
 
-- `definitions/instructions`: reusable task instructions
+- `definitions/prompts`: prompt fragments composed by strategies
+- `definitions/tools`: per-tool yaml descriptors (argv, rate-limit signatures)
 - `src/cli`: local enqueue entrypoints
 - `src/daemon`: long-running queue poller
 - `src/domain`: core types and contracts
+- `src/strategies`: per-instruction runtime behavior (id-keyed registry)
 - `src/services`: orchestration logic
 - `src/infra`: storage and external integrations
 - `tests`: unit and integration tests
@@ -38,12 +40,12 @@ The npm wrapper sets repo-local `APPDATA`, `LOCALAPPDATA`, `USERPROFILE`, cache,
 
 This repository contains a working v1 local runner skeleton:
 
-- instruction loading from `definitions/instructions`
+- strategy registry that maps each instruction id to runtime behavior
 - local queue storage with same-source supersede behavior
-- scheduler rules for `observe` and `mutate`
+- scheduler with concurrency budget and per-tool pause
 - daemon orchestration and recovery
 - local TTL log storage
-- headless agent adapter
+- headless tool adapter (forwards SIGTERM via AbortController)
 - git workspace manager
 - GitHub App client
 
@@ -55,7 +57,14 @@ Required variables:
 
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY_PATH`
-- `AGENT_COMMAND`
+- `GITHUB_WEBHOOK_SECRET`
+- `TOOLS` (comma-separated list, e.g. `claude`)
+- `<TOOL>_COMMAND` (binary path) for each entry in `TOOLS`
+- `ALLOWED_SENDER_IDS`
+
+Trigger syntax: comments use `/omgr` (optionally `/omgr implement ...`).
+The strategy decides which tool runs each task — there is no
+per-comment tool selection.
 
 Useful files:
 
