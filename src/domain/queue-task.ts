@@ -1,7 +1,7 @@
 import type {
   RepoRef,
   SourceRef,
-  StickyCommentRef,
+  TaskNotifications,
   TaskPriority,
   TaskRecord,
 } from "./task.js";
@@ -15,7 +15,7 @@ export interface QueueTaskInput {
   additionalInstructions?: string;
   requestedBy: string;
   priority?: TaskPriority;
-  stickyComment?: StickyCommentRef;
+  notifications?: TaskNotifications;
 }
 
 export function hasSameSource(

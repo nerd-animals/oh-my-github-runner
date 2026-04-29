@@ -60,15 +60,6 @@ export function renderQueued(meta: StickyCommentMeta): string {
   ].join("\n");
 }
 
-export function renderSuccess(task: TaskRecord): string {
-  return [
-    stickyCommentMarker(task.taskId),
-    `✅ **Task completed** — \`${task.taskId}\``,
-    "",
-    taskMetaTable(task),
-  ].join("\n");
-}
-
 export function renderFailure(task: TaskRecord, errorSummary: string): string {
   return [
     stickyCommentMarker(task.taskId),

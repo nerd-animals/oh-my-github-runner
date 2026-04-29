@@ -179,6 +179,13 @@ function buildFixture(options: BuildOptions = {}): Fixture {
     },
     addReaction: async (...args) => {
       forbiddenCalls.push({ method: "addReaction", args });
+      return { reactionId: 0 };
+    },
+    deleteReaction: async (...args) => {
+      forbiddenCalls.push({ method: "deleteReaction", args });
+    },
+    deleteIssueComment: async (...args) => {
+      forbiddenCalls.push({ method: "deleteIssueComment", args });
     },
     findCommentByMarker: async () => null,
     findOpenPullRequestByBranch: async () => null,

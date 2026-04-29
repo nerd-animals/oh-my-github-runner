@@ -4,7 +4,7 @@ import type {
   GitHubSourceContext,
 } from "../github.js";
 import type { InstructionContext } from "../instruction.js";
-import type { RepoRef, SourceRef } from "../task.js";
+import type { RepoRef, SourceRef, TriggerTarget } from "../task.js";
 
 export interface PullRequestStateInfo {
   number: number;
@@ -34,9 +34,7 @@ export type ReactionContent =
   | "rocket"
   | "eyes";
 
-export type ReactionTarget =
-  | { kind: "issue"; issueNumber: number }
-  | { kind: "comment"; commentId: number };
+export type ReactionTarget = TriggerTarget;
 
 export interface IssueCommentRef {
   commentId: number;
@@ -75,10 +73,16 @@ export interface GitHubClient {
     commentId: number,
     body: string,
   ): Promise<void>;
+  deleteIssueComment(repo: RepoRef, commentId: number): Promise<void>;
   addReaction(
     repo: RepoRef,
     target: ReactionTarget,
     content: ReactionContent,
+  ): Promise<{ reactionId: number }>;
+  deleteReaction(
+    repo: RepoRef,
+    target: ReactionTarget,
+    reactionId: number,
   ): Promise<void>;
   findCommentByMarker(
     repo: RepoRef,

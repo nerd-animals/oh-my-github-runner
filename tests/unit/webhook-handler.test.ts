@@ -75,8 +75,8 @@ function buildHarness(options: HarnessOptions = {}): Harness {
           priority: "normal" as const,
           requestedBy: input.requestedBy,
           createdAt: new Date().toISOString(),
-          ...(input.stickyComment !== undefined
-            ? { stickyComment: input.stickyComment }
+          ...(input.notifications !== undefined
+            ? { notifications: input.notifications }
             : {}),
         };
       },
@@ -97,6 +97,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
       },
       addReaction: async (_repo, target, content) => {
         reactions.push({ target, content });
+        return { reactionId: 5000 };
       },
       getPullRequestState:
         options.getPullRequestStateImpl ??
@@ -294,8 +295,18 @@ describe("WebhookHandler", () => {
 
     assert.equal(harness.enqueued.length, 1);
     assert.equal(harness.enqueued[0]?.taskId, "task_fixed_123");
-    assert.equal(harness.enqueued[0]?.stickyComment?.commentId, 1000);
-    assert.equal(harness.enqueued[0]?.stickyComment?.issueNumber, 7);
+    assert.equal(
+      harness.enqueued[0]?.notifications?.sticky?.commentId,
+      1000,
+    );
+    assert.equal(
+      harness.enqueued[0]?.notifications?.sticky?.issueNumber,
+      7,
+    );
+    assert.deepEqual(harness.enqueued[0]?.notifications?.trigger, {
+      target: { kind: "issue", issueNumber: 7 },
+      reactionId: 5000,
+    });
   });
 
   test("posts a sticky comment and reacts to the comment on /claude", async () => {
@@ -408,7 +419,7 @@ describe("WebhookHandler", () => {
         postIssueComment: async () => ({ commentId: 1, body: "" }),
         postPullRequestComment: async () => ({ commentId: 1, body: "" }),
         updateIssueComment: async () => {},
-        addReaction: async () => {
+        addReaction: async (): Promise<{ reactionId: number }> => {
           throw new Error("reactions API failure");
         },
         getPullRequestState: async (_repo, number) => ({
