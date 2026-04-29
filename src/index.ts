@@ -30,6 +30,7 @@ import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
 import {
   renderFailure,
   renderRateLimited,
+  renderSuperseded,
 } from "./services/sticky-comment.js";
 import type { TaskRecord } from "./domain/task.js";
 
@@ -246,6 +247,14 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       }
       await editSticky(task, renderRateLimited(task));
     },
+    notifyTaskSuperseded: async (task, supersededBy) => {
+      if (task.notifications?.sticky === undefined) {
+        return;
+      }
+      await editSticky(task, renderSuperseded(task, supersededBy));
+    },
+    cleanupOrphanWorkspaces: (activeTaskIds) =>
+      workspaceManager.cleanupOrphanWorkspaces(activeTaskIds),
   });
 
   async function editSticky(task: TaskRecord, body: string): Promise<void> {

@@ -35,6 +35,15 @@ export interface RunnerDaemonDependencies {
     task: TaskRecord,
     supersededBy: string,
   ) => Promise<void>;
+  /**
+   * Optional janitor that runs once at startup. Receives the set of
+   * taskIds that are still tracked in the queue (queued + running) and
+   * removes any on-disk workspace directories not in that set — i.e.
+   * leftover state from a process crash mid-run.
+   */
+  cleanupOrphanWorkspaces?: (
+    activeTaskIds: ReadonlySet<string>,
+  ) => Promise<number>;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -76,6 +85,30 @@ export class RunnerDaemon {
     await this.dependencies.queueStore.recoverRunningTasks(
       "daemon interrupted before completion",
     );
+    if (this.dependencies.cleanupOrphanWorkspaces !== undefined) {
+      try {
+        const tasks = await this.dependencies.queueStore.listTasks();
+        const active = new Set(
+          tasks
+            .filter(
+              (task) => task.status === "queued" || task.status === "running",
+            )
+            .map((task) => task.taskId),
+        );
+        const removed = await this.dependencies.cleanupOrphanWorkspaces(active);
+        if (removed > 0) {
+          console.log(
+            `[daemon] cleanupOrphanWorkspaces removed ${removed} orphan workspace dir(s)`,
+          );
+        }
+      } catch (error) {
+        this.warn(
+          `[daemon] cleanupOrphanWorkspaces threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
     await this.dependencies.logStore.cleanupExpired();
     await this.maybePrune(true);
   }

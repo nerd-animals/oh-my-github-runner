@@ -7,6 +7,7 @@ import {
   renderQueued,
   renderRateLimited,
   renderRejection,
+  renderSuperseded,
   stickyCommentMarker,
   type StickyCommentMeta,
 } from "../../src/services/sticky-comment.js";
@@ -64,5 +65,23 @@ describe("sticky-comment renderers", () => {
     assert.match(body, /Trigger rejected/);
     assert.match(body, /PR is from a fork/);
     assert.match(body, /forks are not supported/);
+  });
+
+  test("renderSuperseded names the replacing task and keeps the original sticky marker", () => {
+    const task: TaskRecord = {
+      taskId: "task_old",
+      repo: { owner: "octo", name: "repo" },
+      source: { kind: "issue", number: 7 },
+      instructionId: "issue-comment-reply",
+      agent: "claude",
+      status: "superseded",
+      priority: "normal",
+      requestedBy: "alice",
+      createdAt: "2026-04-30T00:00:00.000Z",
+    };
+    const body = renderSuperseded(task, "task_new");
+    assert.ok(body.startsWith(stickyCommentMarker("task_old")));
+    assert.match(body, /superseded/i);
+    assert.match(body, /task_new/);
   });
 });

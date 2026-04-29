@@ -86,6 +86,20 @@ export function renderRateLimited(task: TaskRecord): string {
   ].join("\n");
 }
 
+export function renderSuperseded(
+  task: TaskRecord,
+  supersededBy: string,
+): string {
+  return [
+    stickyCommentMarker(task.taskId),
+    `🔁 **Task superseded** — \`${task.taskId}\``,
+    "",
+    taskMetaTable(task),
+    "",
+    `_Replaced by a newer trigger: \`${supersededBy}\`._`,
+  ].join("\n");
+}
+
 export function renderRejection(
   reason: string,
   body: string,

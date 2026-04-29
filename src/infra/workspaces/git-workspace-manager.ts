@@ -1,4 +1,4 @@
-import { access, mkdir, rm } from "node:fs/promises";
+import { access, mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { RepoRef, TaskRecord } from "../../domain/task.js";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
@@ -161,6 +161,40 @@ export class GitWorkspaceManager implements WorkspaceManager {
 
   async cleanupWorkspace(workspace: WorkspaceHandle): Promise<void> {
     await rm(workspace.workspacePath, { recursive: true, force: true });
+  }
+
+  /**
+   * Removes any directory under workspacesDir whose name (treated as a
+   * taskId) is not in `activeTaskIds`. Used at daemon startup to clean
+   * up after a process crash that left the queue/<taskId>.json record
+   * gone but the workspace dir still on disk.
+   *
+   * Returns the number of directories removed.
+   */
+  async cleanupOrphanWorkspaces(
+    activeTaskIds: ReadonlySet<string>,
+  ): Promise<number> {
+    let entries: string[];
+    try {
+      entries = await readdir(this.options.workspacesDir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return 0;
+      }
+      throw error;
+    }
+    let removed = 0;
+    for (const entry of entries) {
+      if (activeTaskIds.has(entry)) {
+        continue;
+      }
+      await rm(path.join(this.options.workspacesDir, entry), {
+        recursive: true,
+        force: true,
+      });
+      removed += 1;
+    }
+    return removed;
   }
 
   private async ensureMirror(
