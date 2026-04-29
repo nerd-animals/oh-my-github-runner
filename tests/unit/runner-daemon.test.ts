@@ -53,6 +53,10 @@ describe("RunnerDaemon", () => {
           calls.push(`revert:${taskId}`);
           return currentTask;
         },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async (message) => {
           calls.push(`recover:${message}`);
         },
@@ -110,6 +114,10 @@ describe("RunnerDaemon", () => {
         revertToQueued: async (taskId) => {
           calls.push(`revert:${taskId}`);
           return currentTask;
+        },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
         },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
@@ -174,6 +182,10 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -220,6 +232,10 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -269,6 +285,10 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -323,6 +343,10 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
@@ -365,6 +389,10 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },

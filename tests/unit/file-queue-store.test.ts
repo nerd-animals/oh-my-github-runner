@@ -38,21 +38,49 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("supersedes older queued tasks for the same source", async () => {
+  test("findActiveBySource returns queued and running tasks matching the source", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
       const store = new FileQueueStore({ dataDir: root });
-
-      const first = await store.enqueue({
+      const same = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
-        instructionId: "issue-comment-reply",
+        instructionId: "issue-implement",
         agent: "claude",
         requestedBy: "test",
       });
+      const different = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 200 },
+        instructionId: "issue-implement",
+        agent: "claude",
+        requestedBy: "test",
+      });
+      // Move `same` to running.
+      await store.startTask(same.taskId);
 
-      const second = await store.enqueue({
+      const matches = await store.findActiveBySource(
+        { owner: "octo", name: "repo" },
+        { kind: "issue", number: 100 },
+      );
+
+      assert.deepEqual(
+        matches.map((task) => task.taskId).sort(),
+        [same.taskId].sort(),
+      );
+      assert.notEqual(matches[0]?.taskId, different.taskId);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("markSuperseded moves a queued task into superseded with supersededBy", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({ dataDir: root });
+      const old = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
@@ -60,21 +88,42 @@ describe("FileQueueStore", () => {
         requestedBy: "test",
       });
 
-      const tasks = await store.listTasks();
-      const reloadedFirst = tasks.find((task) => task.taskId === first.taskId);
-      const reloadedSecond = tasks.find(
-        (task) => task.taskId === second.taskId,
-      );
+      const result = await store.markSuperseded(old.taskId, "task_new");
 
-      assert.equal(reloadedFirst?.status, "superseded");
-      assert.equal(reloadedSecond?.status, "queued");
+      assert.equal(result.status, "superseded");
+      assert.equal(result.supersededBy, "task_new");
+      assert.equal(typeof result.finishedAt, "string");
 
-      // Status is encoded by directory placement, not just by the field.
-      assert.deepEqual(await readdir(join(root, "queued")), [
-        `${second.taskId}.json`,
-      ]);
+      assert.deepEqual(await readdir(join(root, "queued")), []);
       assert.deepEqual(await readdir(join(root, "superseded")), [
-        `${first.taskId}.json`,
+        `${old.taskId}.json`,
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("markSuperseded works on a running task too", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({ dataDir: root });
+      const old = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-implement",
+        agent: "claude",
+        requestedBy: "test",
+      });
+      await store.startTask(old.taskId);
+
+      const result = await store.markSuperseded(old.taskId, "task_new");
+
+      assert.equal(result.status, "superseded");
+      assert.equal(result.supersededBy, "task_new");
+      assert.deepEqual(await readdir(join(root, "running")), []);
+      assert.deepEqual(await readdir(join(root, "superseded")), [
+        `${old.taskId}.json`,
       ]);
     } finally {
       await rm(root, { recursive: true, force: true });
