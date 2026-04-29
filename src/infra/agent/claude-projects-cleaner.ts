@@ -36,22 +36,38 @@ export function createClaudeProjectsCleaner(
       resolvedWorkspace === workspacesDir ||
       !resolvedWorkspace.startsWith(workspacesPrefix)
     ) {
+      console.debug("claude-projects-cleaner: skip", {
+        reason: "outside-workspaces",
+        workspacePath,
+      });
       return;
     }
 
     const encodedName = encodeProjectsDirName(resolvedWorkspace);
 
     if (!encodedName.startsWith(expectedNamePrefix)) {
+      console.debug("claude-projects-cleaner: skip", {
+        reason: "prefix-mismatch",
+        workspacePath,
+      });
       return;
     }
 
     if (encodedName.includes(path.sep)) {
+      console.debug("claude-projects-cleaner: skip", {
+        reason: "sep-after-encode",
+        workspacePath,
+      });
       return;
     }
 
     const target = path.join(projectsDir, encodedName);
 
     if (path.dirname(target) !== projectsDir) {
+      console.debug("claude-projects-cleaner: skip", {
+        reason: "dirname-mismatch",
+        workspacePath,
+      });
       return;
     }
 
