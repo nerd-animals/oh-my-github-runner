@@ -87,15 +87,22 @@ export class EventDispatcher {
   }
 
   dispatch(event: DispatchedEvent): DispatchAction {
-    if (event.sender.id === this.deps.botUserId) {
-      return { kind: "ignore", reason: "sender is our app's bot" };
-    }
+    // issue_opened bypasses both gates so bot-authored issues and
+    // outside collaborators can still trigger an initial review. The
+    // `no-ai` label and absence of a routing rule remain the only
+    // ways to suppress an open. Comment events still go through the
+    // bot self-loop and allowlist checks.
+    if (event.kind !== "issue_opened") {
+      if (event.sender.id === this.deps.botUserId) {
+        return { kind: "ignore", reason: "sender is our app's bot" };
+      }
 
-    if (!this.deps.allowedSenderIds.has(event.sender.id)) {
-      return {
-        kind: "ignore",
-        reason: `sender id ${event.sender.id} (login=${event.sender.login}) not in allowlist`,
-      };
+      if (!this.deps.allowedSenderIds.has(event.sender.id)) {
+        return {
+          kind: "ignore",
+          reason: `sender id ${event.sender.id} (login=${event.sender.login}) not in allowlist`,
+        };
+      }
     }
 
     if (event.kind === "issue_opened") {

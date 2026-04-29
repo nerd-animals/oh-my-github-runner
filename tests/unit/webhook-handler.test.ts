@@ -168,7 +168,7 @@ describe("WebhookHandler", () => {
     assert.equal(harness.enqueued.length, 1);
   });
 
-  test("ignores events from our own bot (sender filter)", async () => {
+  test("issue.opened from our own bot still enqueues — bot self-loop check is bypassed for opens", async () => {
     const harness = buildHarness();
     const payload = {
       ...repoBlock,
@@ -181,6 +181,27 @@ describe("WebhookHandler", () => {
     const result = await harness.handler.handle(
       body,
       signedHeaders(body, "issues", "delivery-bot"),
+    );
+
+    assert.equal(result.status, 200);
+    assert.equal(harness.enqueued.length, 1);
+    assert.equal(harness.enqueued[0]?.instructionId, "issue-initial-review");
+  });
+
+  test("issue_comment from our own bot is still ignored (self-loop guard remains for comments)", async () => {
+    const harness = buildHarness();
+    const payload = {
+      ...repoBlock,
+      action: "created",
+      issue: { number: 1 },
+      comment: { id: 1, body: "/claude" },
+      sender: { id: botUserId, login: "our-bot[bot]", type: "Bot" },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+
+    const result = await harness.handler.handle(
+      body,
+      signedHeaders(body, "issue_comment", "delivery-bot-comment"),
     );
 
     assert.equal(result.status, 200);

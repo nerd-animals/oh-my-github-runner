@@ -255,7 +255,7 @@ describe("EventDispatcher", () => {
     assert.match(action.reason, /not registered/);
   });
 
-  test("ignores issue.opened from a sender outside the allowlist", () => {
+  test("issue.opened bypasses the allowlist (outside collaborators get an initial review)", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({
@@ -265,11 +265,25 @@ describe("EventDispatcher", () => {
       sender: { id: 999, login: "stranger" },
     });
 
-    assert.equal(action.kind, "ignore");
-    if (action.kind !== "ignore") return;
-    assert.match(action.reason, /not in allowlist/);
-    assert.match(action.reason, /999/);
-    assert.match(action.reason, /stranger/);
+    assert.equal(action.kind, "enqueue");
+    if (action.kind !== "enqueue") return;
+    assert.equal(action.instructionId, "issue-initial-review");
+    assert.equal(action.requestedBy, "stranger");
+  });
+
+  test("issue.opened bypasses the bot self-loop check (bot-authored issues still get reviewed)", () => {
+    const dispatcher = makeDispatcher({ botUserId: 1 });
+
+    const action = dispatcher.dispatch({
+      kind: "issue_opened",
+      repo,
+      issue: { number: 1, labels: [] },
+      sender: { id: 1, login: "our-bot" },
+    });
+
+    assert.equal(action.kind, "enqueue");
+    if (action.kind !== "enqueue") return;
+    assert.equal(action.instructionId, "issue-initial-review");
   });
 
   test("ignores issue_comment from a sender outside the allowlist even with a valid command", () => {
