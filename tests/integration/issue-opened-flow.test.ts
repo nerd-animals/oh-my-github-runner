@@ -3,7 +3,6 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { FileInstructionLoader } from "../../src/infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "../../src/infra/queue/file-queue-store.js";
 import { DeliveryDedupCache } from "../../src/infra/webhook/delivery-dedup.js";
 import { computeHubSignature } from "../../src/infra/webhook/hmac-verifier.js";
@@ -21,11 +20,7 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
     try {
       const queueDir = join(tempDir, "var", "queue");
       const queueStore = new FileQueueStore({ dataDir: queueDir });
-      const instructionLoader = new FileInstructionLoader(
-        join(process.cwd(), "definitions", "instructions"),
-      );
       const enqueueService = new EnqueueService({
-        instructionLoader,
         queueStore,
       });
 

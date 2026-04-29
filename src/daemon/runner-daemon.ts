@@ -1,17 +1,20 @@
-import type { InstructionDefinition } from "../domain/instruction.js";
-import type { InstructionLoader } from "../domain/ports/instruction-loader.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { RateLimitStateStore } from "../infra/queue/rate-limit-state-store.js";
-import type { ExecuteTaskResult, ExecutionService } from "../services/execution-service.js";
 import type { SchedulerService } from "../services/scheduler-service.js";
+import type { ExecuteResult } from "../strategies/types.js";
 
 export interface RunnerDaemonDependencies {
   queueStore: QueueStore;
-  instructionLoader: InstructionLoader;
   schedulerService: SchedulerService;
-  executionService: Pick<ExecutionService, "execute">;
+  // Runs a task to completion. The daemon owns when to call this; the
+  // composition root supplies the implementation (typically `getStrategy(...)
+  // .run(task, toolkitFactory.create(task), signal)`). Tests inject a stub.
+  runStrategy: (
+    task: TaskRecord,
+    signal: AbortSignal,
+  ) => Promise<ExecuteResult>;
   logStore: LogStore;
   pollIntervalMs: number;
   rateLimitStateStore?: Pick<RateLimitStateStore, "loadActivePauses" | "pause">;
@@ -74,9 +77,6 @@ export class RunnerDaemon {
       tasks,
       pausedAgents,
     });
-    const instructionsById = await this.loadInstructions(
-      tasks.filter((task) => nextTaskIds.includes(task.taskId)),
-    );
 
     if (nextTaskIds.length === 0) {
       this.maybeWarnAllAgentsPaused(tasks, pausedAgents);
@@ -89,21 +89,15 @@ export class RunnerDaemon {
         continue;
       }
 
-      const instruction = instructionsById[task.instructionId];
-
-      if (instruction === undefined) {
-        continue;
-      }
-
       const startedTask = await this.dependencies.queueStore.startTask(
         task.taskId,
       );
 
       console.log(
-        `[daemon] start task=${task.taskId} instruction=${instruction.id} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
+        `[daemon] start task=${task.taskId} instruction=${task.instructionId} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
       );
 
-      const activeTask = this.runTask(startedTask, instruction).finally(() => {
+      const activeTask = this.runTask(startedTask).finally(() => {
         this.activeTasks.delete(task.taskId);
       });
 
@@ -189,17 +183,15 @@ export class RunnerDaemon {
     );
   }
 
-  private async runTask(
-    task: TaskRecord,
-    instruction: InstructionDefinition,
-  ): Promise<void> {
-    let result: ExecuteTaskResult;
+  private async runTask(task: TaskRecord): Promise<void> {
+    // Per-task AbortController. PR C will plumb this through supersede so
+    // a newer trigger on the same source can cancel an in-flight run; for
+    // now it stays unused (no aborts are issued).
+    const ctrl = new AbortController();
+    let result: ExecuteResult;
 
     try {
-      result = await this.dependencies.executionService.execute({
-        task,
-        instruction,
-      });
+      result = await this.dependencies.runStrategy(task, ctrl.signal);
     } catch (error) {
       result = {
         status: "failed",
@@ -291,20 +283,6 @@ export class RunnerDaemon {
         `rate-limited; reverted to queued (no state store configured)`,
       );
     }
-  }
-
-  private async loadInstructions(
-    tasks: TaskRecord[],
-  ): Promise<Record<string, InstructionDefinition>> {
-    const instructionIds = [...new Set(tasks.map((task) => task.instructionId))];
-    const entries = await Promise.all(
-      instructionIds.map(async (instructionId) => [
-        instructionId,
-        await this.dependencies.instructionLoader.loadById(instructionId),
-      ] as const),
-    );
-
-    return Object.fromEntries(entries);
   }
 
   private async sleep(ms: number, signal?: AbortSignal): Promise<void> {

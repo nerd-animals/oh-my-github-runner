@@ -2,8 +2,8 @@ import type {
   CreatePullRequestInput,
   GitHubPullRequestSummary,
   GitHubSourceContext,
+  SourceContextRequest,
 } from "../github.js";
-import type { InstructionContext } from "../instruction.js";
 import type { RepoRef, SourceRef, TriggerTarget } from "../task.js";
 
 export interface PullRequestStateInfo {
@@ -45,7 +45,7 @@ export interface GitHubClient {
   getSourceContext(
     repo: RepoRef,
     source: SourceRef,
-    instructionContext: InstructionContext,
+    request: SourceContextRequest,
   ): Promise<GitHubSourceContext>;
   getDefaultBranch(repo: RepoRef): Promise<string>;
   getPullRequestState(

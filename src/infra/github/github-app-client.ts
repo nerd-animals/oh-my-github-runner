@@ -9,8 +9,8 @@ import type {
   LinkedRefKind,
   LinkedRefState,
   LinkedRefs,
+  SourceContextRequest,
 } from "../../domain/github.js";
-import type { InstructionContext } from "../../domain/instruction.js";
 import type { RepoRef, SourceRef } from "../../domain/task.js";
 import type {
   AppBotInfo,
@@ -101,7 +101,7 @@ export class GitHubAppClient implements GitHubClient {
   async getSourceContext(
     repo: RepoRef,
     source: SourceRef,
-    instructionContext: InstructionContext,
+    request: SourceContextRequest,
   ): Promise<GitHubSourceContext> {
     if (source.kind === "issue") {
       const issue = await this.installationRequest<GitHubIssueResponse>(
@@ -110,7 +110,7 @@ export class GitHubAppClient implements GitHubClient {
         `/repos/${repo.owner}/${repo.name}/issues/${source.number}`,
       );
       const comments =
-        instructionContext.includeIssueComments === true
+        request.includeIssueComments === true
           ? await this.installationRequest<GitHubCommentResponse[]>(
               repo,
               "GET",
@@ -123,7 +123,7 @@ export class GitHubAppClient implements GitHubClient {
         kind: "issue",
         title: issue.title,
         body:
-          instructionContext.includeIssueBody === true ? (issue.body ?? "") : "",
+          request.includeIssueBody === true ? (issue.body ?? "") : "",
         comments: comments.map(this.mapComment),
         linkedRefs,
       };
@@ -135,7 +135,7 @@ export class GitHubAppClient implements GitHubClient {
       `/repos/${repo.owner}/${repo.name}/pulls/${source.number}`,
     );
     const comments =
-      instructionContext.includePrComments === true
+      request.includePrComments === true
         ? await this.installationRequest<GitHubCommentResponse[]>(
             repo,
             "GET",
@@ -143,7 +143,7 @@ export class GitHubAppClient implements GitHubClient {
           )
         : [];
     const diff =
-      instructionContext.includePrDiff === true
+      request.includePrDiff === true
         ? await this.installationTextRequest(
             repo,
             "GET",
@@ -161,7 +161,7 @@ export class GitHubAppClient implements GitHubClient {
       kind: "pull_request",
       title: pullRequest.title,
       body:
-        instructionContext.includePrBody === true
+        request.includePrBody === true
           ? (pullRequest.body ?? "")
           : "",
       comments: comments.map(this.mapComment),

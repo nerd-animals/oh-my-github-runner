@@ -1,31 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
-
-const instruction: InstructionDefinition = {
-  id: "issue-comment-reply",
-  revision: 1,
-  sourceKind: "issue",
-  mode: "observe",
-  workflow: "observe",
-  persona: "architecture",
-  context: {},
-  permissions: {
-    codeRead: true,
-    codeWrite: false,
-    gitPush: false,
-    prCreate: false,
-    prUpdate: false,
-    commentWrite: true,
-  },
-  githubActions: ["issue_comment"],
-  execution: {
-    timeoutSec: 1800,
-  },
-};
 
 function createTask(status: TaskRecord["status"]): TaskRecord {
   return {
@@ -81,15 +58,10 @@ describe("RunnerDaemon", () => {
         },
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          calls.push("execute");
-          return { status: "succeeded" };
-        },
+      runStrategy: async () => {
+        calls.push("execute");
+        return { status: "succeeded" };
       },
       logStore: {
         write: async () => {},
@@ -142,15 +114,10 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          calls.push("execute");
-          return { status: "rate_limited", agentName: "claude" };
-        },
+      runStrategy: async () => {
+        calls.push("execute");
+        return { status: "rate_limited", agentName: "claude" };
       },
       logStore: {
         write: async (taskId, message) => {
@@ -210,14 +177,9 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => {
-          throw new Error("getSourceContext network failure");
-        },
+      runStrategy: async () => {
+        throw new Error("getSourceContext network failure");
       },
       logStore: {
         write: async () => {},
@@ -261,13 +223,8 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({ status: "rate_limited", agentName: "claude" }),
-      },
+      runStrategy: async () => ({ status: "rate_limited", agentName: "claude" }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -315,16 +272,11 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({
-          status: "failed",
-          errorSummary: "boom",
-        }),
-      },
+      runStrategy: async () => ({
+        status: "failed",
+        errorSummary: "boom",
+      }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -374,13 +326,8 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({ status: "succeeded" }),
-      },
+      runStrategy: async () => ({ status: "succeeded" }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -421,16 +368,11 @@ describe("RunnerDaemon", () => {
         recoverRunningTasks: async () => {},
         pruneTerminalTasks: async () => 0,
       },
-      instructionLoader: {
-        loadById: async () => instruction,
-      },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      executionService: {
-        execute: async () => ({
-          status: "rate_limited",
-          agentName: "claude",
-        }),
-      },
+      runStrategy: async () => ({
+        status: "rate_limited",
+        agentName: "claude",
+      }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},

@@ -1,39 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { EnqueueService } from "../../src/services/enqueue-service.js";
-import type { InstructionDefinition } from "../../src/domain/instruction.js";
-
-const issueImplementInstruction: InstructionDefinition = {
-  id: "issue-implement",
-  revision: 1,
-  sourceKind: "issue",
-  mode: "mutate",
-  workflow: "mutate",
-  persona: "implementation",
-  context: {
-    includeIssueBody: true,
-    includeIssueComments: true,
-  },
-  permissions: {
-    codeRead: true,
-    codeWrite: true,
-    gitPush: true,
-    prCreate: true,
-    prUpdate: true,
-    commentWrite: true,
-  },
-  githubActions: ["branch_push", "pr_create", "issue_comment"],
-  execution: {
-    timeoutSec: 3600,
-  },
-};
 
 describe("EnqueueService", () => {
-  test("rejects a source kind mismatch", async () => {
+  test("rejects an instructionId with no registered strategy", async () => {
     const service = new EnqueueService({
-      instructionLoader: {
-        loadById: async () => issueImplementInstruction,
-      },
       queueStore: {
         enqueue: async () => {
           throw new Error("should not be called");
@@ -57,20 +28,17 @@ describe("EnqueueService", () => {
     await assert.rejects(
       service.enqueue({
         repo: { owner: "octo", name: "repo" },
-        source: { kind: "pull_request", number: 52 },
-        instructionId: "issue-implement",
+        source: { kind: "issue", number: 100 },
+        instructionId: "nope-not-a-real-strategy",
         agent: "claude",
         requestedBy: "test",
       }),
-      /source kind/i,
+      /no strategy is registered/i,
     );
   });
 
-  test("enqueues when the instruction matches the source kind", async () => {
+  test("enqueues a task for a known strategy id", async () => {
     const service = new EnqueueService({
-      instructionLoader: {
-        loadById: async () => issueImplementInstruction,
-      },
       queueStore: {
         enqueue: async (input) => ({
           taskId: "task_1",
@@ -110,5 +78,6 @@ describe("EnqueueService", () => {
     assert.equal(task.taskId, "task_1");
     assert.equal(task.status, "queued");
     assert.equal(task.agent, "claude");
+    assert.equal(task.instructionId, "issue-implement");
   });
 });

@@ -3,11 +3,9 @@ import path from "node:path";
 import os from "node:os";
 import { RunnerDaemon } from "./daemon/runner-daemon.js";
 import { Runtime } from "./runtime.js";
-import { FileInstructionLoader } from "./infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "./infra/queue/file-queue-store.js";
 import { FileLogStore } from "./infra/logs/file-log-store.js";
 import { SchedulerService } from "./services/scheduler-service.js";
-import { ExecutionService } from "./services/execution-service.js";
 import { EnqueueService } from "./services/enqueue-service.js";
 import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
@@ -18,7 +16,10 @@ import { RateLimitDetectingAgentRunner } from "./infra/agent/rate-limit-detectin
 import { loadAgentRateLimitConfig } from "./infra/agent/agent-rate-limit-config.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
-import { loadPromptAssets } from "./infra/prompts/prompt-asset-loader.js";
+import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
+import { PromptRenderer } from "./infra/prompts/prompt-renderer.js";
+import { ToolkitFactory } from "./services/toolkit.js";
+import { getStrategy } from "./strategies/index.js";
 import {
   AgentRegistry,
   loadAgentConfigFromEnv,
@@ -169,26 +170,29 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const queueStore = new FileQueueStore({
     dataDir: path.join(runnerRoot, "var", "queue"),
   });
-  const instructionLoader = new FileInstructionLoader(
-    path.join(runnerRoot, "definitions", "instructions"),
-  );
 
-  const promptAssets = await loadPromptAssets({
+  const promptFragments = await loadPromptFragments({
     promptsDir: path.join(runnerRoot, "definitions", "prompts"),
+  });
+  const promptRenderer = new PromptRenderer({ fragments: promptFragments });
+  const toolkitFactory = new ToolkitFactory({
+    githubClient,
+    workspaceManager,
+    agentRegistry,
+    logStore,
+    promptRenderer,
+    cleanupAgentArtifacts,
   });
 
   const daemon = new RunnerDaemon({
     queueStore,
-    instructionLoader,
     schedulerService: new SchedulerService({ maxConcurrency }),
-    executionService: new ExecutionService({
-      githubClient,
-      workspaceManager,
-      agentRegistry,
-      logStore,
-      promptAssets,
-      cleanupAgentArtifacts,
-    }),
+    runStrategy: (task, signal) =>
+      getStrategy(task.instructionId).run(
+        task,
+        toolkitFactory.create(task),
+        signal,
+      ),
     logStore,
     pollIntervalMs,
     rateLimitStateStore,
@@ -294,7 +298,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   }
 
   const enqueueService = new EnqueueService({
-    instructionLoader,
     queueStore,
   });
 

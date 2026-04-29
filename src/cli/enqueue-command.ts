@@ -1,5 +1,4 @@
 import path from "node:path";
-import { FileInstructionLoader } from "../infra/instructions/instruction-loader.js";
 import { FileQueueStore } from "../infra/queue/file-queue-store.js";
 import { EnqueueService } from "../services/enqueue-service.js";
 
@@ -15,9 +14,6 @@ export interface EnqueueCommandInput {
 export async function runEnqueueCommand(input: EnqueueCommandInput) {
   const workspaceRoot = process.cwd();
   const service = new EnqueueService({
-    instructionLoader: new FileInstructionLoader(
-      path.join(workspaceRoot, "definitions", "instructions"),
-    ),
     queueStore: new FileQueueStore({
       dataDir: path.join(workspaceRoot, "var", "queue"),
     }),
