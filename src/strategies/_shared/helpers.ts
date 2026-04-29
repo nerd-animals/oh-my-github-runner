@@ -23,7 +23,7 @@ export function mapAiFailure(result: AiRunResult): ExecuteResult {
     return ok();
   }
   if (result.kind === "rate_limited") {
-    return { status: "rate_limited", agentName: result.agentName };
+    return { status: "rate_limited", toolName: result.toolName };
   }
   return { status: "failed", errorSummary: result.errorSummary };
 }

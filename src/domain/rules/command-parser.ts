@@ -1,7 +1,7 @@
 export type CommandVerb = "implement" | null;
 
 export interface ParsedCommand {
-  agent: string;
+  tool: string;
   verb: CommandVerb;
   additionalInstructions: string;
 }
@@ -54,9 +54,9 @@ export function parseCommand(body: unknown): ParsedCommand | null {
     return null;
   }
 
-  const agent = match[1] ?? "";
+  const tool = match[1] ?? "";
 
-  if (agent.length === 0) {
+  if (tool.length === 0) {
     return null;
   }
 
@@ -80,5 +80,5 @@ export function parseCommand(body: unknown): ParsedCommand | null {
     .join("\n")
     .trim();
 
-  return { agent, verb, additionalInstructions };
+  return { tool, verb, additionalInstructions };
 }

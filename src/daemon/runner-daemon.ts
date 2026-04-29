@@ -138,7 +138,7 @@ export class RunnerDaemon {
       );
 
       console.log(
-        `[daemon] start task=${task.taskId} instruction=${task.instructionId} agent=${task.agent} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
+        `[daemon] start task=${task.taskId} instruction=${task.instructionId} tool=${task.tool} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
       );
 
       const abort = new AbortController();
@@ -316,7 +316,7 @@ export class RunnerDaemon {
     }
 
     if (result.status === "rate_limited") {
-      await this.handleRateLimit(task, result.agentName);
+      await this.handleRateLimit(task, result.toolName);
       return;
     }
 
@@ -360,7 +360,7 @@ export class RunnerDaemon {
 
   private async handleRateLimit(
     task: TaskRecord,
-    agentName: string,
+    toolName: string,
   ): Promise<void> {
     await this.dependencies.queueStore.revertToQueued(task.taskId);
 
@@ -379,19 +379,19 @@ export class RunnerDaemon {
     if (this.dependencies.rateLimitStateStore !== undefined) {
       const pausedUntil = this.now() + this.rateLimitCooldownMs;
       await this.dependencies.rateLimitStateStore.pause(
-        agentName,
+        toolName,
         pausedUntil,
       );
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${agentName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+        `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
-        `rate-limited; paused agent '${agentName}' until ${new Date(pausedUntil).toISOString()}`,
+        `rate-limited; paused tool '${toolName}' until ${new Date(pausedUntil).toISOString()}`,
       );
     } else {
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} agent=${agentName} (no state store)`,
+        `[daemon] rate-limited task=${task.taskId} tool=${toolName} (no state store)`,
       );
       await this.dependencies.logStore.write(
         task.taskId,

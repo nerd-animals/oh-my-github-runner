@@ -38,7 +38,7 @@ export interface TaskRecord {
   repo: RepoRef;
   source: SourceRef;
   instructionId: string;
-  agent: string;
+  tool: string;
   additionalInstructions?: string;
   status: TaskStatus;
   priority: TaskPriority;

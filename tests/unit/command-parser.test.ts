@@ -13,7 +13,7 @@ describe("parseCommand", () => {
 
   test("parses a bare /claude as observe with no extra context", () => {
     assert.deepEqual(parseCommand("/claude"), {
-      agent: "claude",
+      tool: "claude",
       verb: null,
       additionalInstructions: "",
     });
@@ -21,7 +21,7 @@ describe("parseCommand", () => {
 
   test("parses /claude implement as implement with no extra context", () => {
     assert.deepEqual(parseCommand("/claude implement"), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "",
     });
@@ -31,7 +31,7 @@ describe("parseCommand", () => {
     assert.deepEqual(
       parseCommand("/claude implement add a logging hook to the runner"),
       {
-        agent: "claude",
+        tool: "claude",
         verb: "implement",
         additionalInstructions: "add a logging hook to the runner",
       },
@@ -40,7 +40,7 @@ describe("parseCommand", () => {
 
   test("treats free text after /claude as additional context for observe", () => {
     assert.deepEqual(parseCommand("/claude please review my latest change"), {
-      agent: "claude",
+      tool: "claude",
       verb: null,
       additionalInstructions: "please review my latest change",
     });
@@ -52,7 +52,7 @@ describe("parseCommand", () => {
     );
 
     assert.deepEqual(parseCommand(body), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "use kebab-case for filenames",
     });
@@ -68,7 +68,7 @@ describe("parseCommand", () => {
     ].join("\n");
 
     assert.deepEqual(parseCommand(body), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "actually do this",
     });
@@ -79,9 +79,9 @@ describe("parseCommand", () => {
     assert.equal(parseCommand(body), null);
   });
 
-  test("preserves the agent token and exposes it for the dispatcher", () => {
+  test("preserves the tool token and exposes it for the dispatcher", () => {
     assert.deepEqual(parseCommand("/codex"), {
-      agent: "codex",
+      tool: "codex",
       verb: null,
       additionalInstructions: "",
     });
@@ -89,7 +89,7 @@ describe("parseCommand", () => {
 
   test("matches the verb case-insensitively (capitalized)", () => {
     assert.deepEqual(parseCommand("/claude Implement"), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "",
     });
@@ -97,7 +97,7 @@ describe("parseCommand", () => {
 
   test("matches the verb case-insensitively with trailing instructions", () => {
     assert.deepEqual(parseCommand("/claude IMPLEMENT add tests"), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "add tests",
     });
@@ -105,7 +105,7 @@ describe("parseCommand", () => {
 
   test("matches the verb case-insensitively (mixed case)", () => {
     assert.deepEqual(parseCommand("/claude ImPlEmEnT"), {
-      agent: "claude",
+      tool: "claude",
       verb: "implement",
       additionalInstructions: "",
     });
@@ -113,7 +113,7 @@ describe("parseCommand", () => {
 
   test("does not match a verb that only starts with a known verb", () => {
     assert.deepEqual(parseCommand("/claude implementation foo"), {
-      agent: "claude",
+      tool: "claude",
       verb: null,
       additionalInstructions: "implementation foo",
     });

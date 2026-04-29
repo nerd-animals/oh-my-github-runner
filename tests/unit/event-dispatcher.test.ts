@@ -61,7 +61,7 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "enqueue");
     if (action.kind !== "enqueue") return;
     assert.equal(action.instructionId, "issue-initial-review");
-    assert.equal(action.agent, "claude");
+    assert.equal(action.tool, "claude");
     assert.deepEqual(action.source, { kind: "issue", number: 7 });
     assert.equal(action.requestedBy, "alice");
   });
@@ -239,7 +239,7 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "ignore");
   });
 
-  test("ignores commands that target an unregistered agent", () => {
+  test("ignores commands that target an unregistered tool", () => {
     const dispatcher = makeDispatcher();
 
     const action = dispatcher.dispatch({

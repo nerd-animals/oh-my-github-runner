@@ -20,7 +20,7 @@ const task: TaskRecord = {
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 7 },
   instructionId: "issue-initial-review",
-  agent: "claude",
+  tool: "claude",
   status: "running",
   priority: "normal",
   requestedBy: "alice",

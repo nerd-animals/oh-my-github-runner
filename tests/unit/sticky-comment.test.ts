@@ -15,7 +15,7 @@ import {
 const meta: StickyCommentMeta = {
   taskId: "task_abc_123",
   instructionId: "issue-initial-review",
-  agent: "claude",
+  tool: "claude",
   requestedBy: "alice",
   trigger: { kind: "issue", issueNumber: 7 },
 };
@@ -25,7 +25,7 @@ const task: TaskRecord = {
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 7 },
   instructionId: "issue-initial-review",
-  agent: "claude",
+  tool: "claude",
   status: "running",
   priority: "normal",
   requestedBy: "alice",
@@ -73,7 +73,7 @@ describe("sticky-comment renderers", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 7 },
       instructionId: "issue-comment-reply",
-      agent: "claude",
+      tool: "claude",
       status: "superseded",
       priority: "normal",
       requestedBy: "alice",

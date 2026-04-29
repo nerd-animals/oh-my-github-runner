@@ -70,7 +70,7 @@ function buildHarness(options: HarnessOptions = {}): Harness {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          agent: input.agent,
+          tool: input.tool,
           status: "queued" as const,
           priority: "normal" as const,
           requestedBy: input.requestedBy,
@@ -225,7 +225,7 @@ describe("WebhookHandler", () => {
 
     assert.equal(harness.enqueued.length, 1);
     assert.equal(harness.enqueued[0]?.instructionId, "issue-initial-review");
-    assert.equal(harness.enqueued[0]?.agent, "claude");
+    assert.equal(harness.enqueued[0]?.tool, "claude");
   });
 
   test("posts a rejection comment for fork PR /claude implement", async () => {
@@ -428,7 +428,7 @@ describe("WebhookHandler", () => {
             repo: input.repo,
             source: input.source,
             instructionId: input.instructionId,
-            agent: input.agent,
+            tool: input.tool,
             status: "queued" as const,
             priority: "normal" as const,
             requestedBy: input.requestedBy,

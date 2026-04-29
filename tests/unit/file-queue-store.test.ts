@@ -23,7 +23,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -47,14 +47,14 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       const different = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 200 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       // Move `same` to running.
@@ -84,7 +84,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -112,7 +112,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       await store.startTask(old.taskId);
@@ -142,21 +142,21 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 1 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       const b = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 2 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       const c = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 3 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -180,7 +180,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -215,7 +215,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -257,7 +257,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -292,7 +292,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 1 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       await store.startTask(oldDone.taskId);
@@ -302,7 +302,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 2 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       await store.startTask(oldFailed.taskId);
@@ -329,7 +329,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 3 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
       await store.startTask(recentDone.taskId);
@@ -339,7 +339,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 4 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 
@@ -372,7 +372,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 7 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         status: "queued",
         priority: "normal",
         requestedBy: "alice",
@@ -410,7 +410,7 @@ describe("FileQueueStore", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       });
 

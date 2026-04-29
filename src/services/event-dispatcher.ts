@@ -51,7 +51,7 @@ export type DispatchAction =
   | {
       kind: "enqueue";
       instructionId: string;
-      agent: string;
+      tool: string;
       repo: RepoRef;
       source: SourceRef;
       additionalInstructions?: string;
@@ -138,7 +138,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: this.deps.agentRegistry.getDefaultAgent(),
+      tool: this.deps.agentRegistry.getDefaultAgent(),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -155,10 +155,10 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.agentRegistry.has(parsed.agent)) {
+    if (!this.deps.agentRegistry.has(parsed.tool)) {
       return {
         kind: "ignore",
-        reason: `agent '${parsed.agent}' is not registered`,
+        reason: `tool '${parsed.tool}' is not registered`,
       };
     }
 
@@ -174,7 +174,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: parsed.agent,
+      tool: parsed.tool,
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -198,10 +198,10 @@ export class EventDispatcher {
       return { kind: "ignore", reason: "no command in comment" };
     }
 
-    if (!this.deps.agentRegistry.has(parsed.agent)) {
+    if (!this.deps.agentRegistry.has(parsed.tool)) {
       return {
         kind: "ignore",
-        reason: `agent '${parsed.agent}' is not registered`,
+        reason: `tool '${parsed.tool}' is not registered`,
       };
     }
 
@@ -235,7 +235,7 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      agent: parsed.agent,
+      tool: parsed.tool,
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
       requestedBy: event.sender.login,

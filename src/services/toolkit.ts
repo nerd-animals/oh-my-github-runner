@@ -201,7 +201,7 @@ class ToolkitImpl implements Toolkit {
         this.cachedContext,
       );
       const result = await this.options.agentRegistry
-        .resolve(opts.agent)
+        .resolve(opts.tool)
         .run({
           task: this.task,
           workspacePath: this.active.path,
@@ -222,7 +222,7 @@ class ToolkitImpl implements Toolkit {
         return { kind: "succeeded", stdout: result.stdout };
       }
       if (result.kind === "rate_limited") {
-        return { kind: "rate_limited", agentName: result.agentName };
+        return { kind: "rate_limited", toolName: result.agentName };
       }
       const errorSummary =
         (result.stderr || result.stdout).trim() || "agent execution failed";

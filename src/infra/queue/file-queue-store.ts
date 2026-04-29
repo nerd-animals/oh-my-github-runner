@@ -44,7 +44,7 @@ export class FileQueueStore implements QueueStore {
       repo: input.repo,
       source: input.source,
       instructionId: input.instructionId,
-      agent: input.agent,
+      tool: input.tool,
       ...(input.additionalInstructions !== undefined &&
       input.additionalInstructions.length > 0
         ? { additionalInstructions: input.additionalInstructions }

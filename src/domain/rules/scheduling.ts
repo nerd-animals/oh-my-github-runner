@@ -28,7 +28,7 @@ export function selectNextTasks(input: SelectNextTasksInput): string[] {
     if (selected.length >= slots) {
       break;
     }
-    if (pausedAgents.has(task.agent)) {
+    if (pausedAgents.has(task.tool)) {
       continue;
     }
     selected.push(task.taskId);

@@ -10,7 +10,7 @@ function createTask(status: TaskRecord["status"]): TaskRecord {
     repo: { owner: "octo", name: "repo" },
     source: { kind: "issue", number: 100 },
     instructionId: "issue-comment-reply",
-    agent: "claude",
+    tool: "claude",
     status,
     priority: "normal",
     requestedBy: "test",
@@ -92,7 +92,7 @@ describe("RunnerDaemon", () => {
   test("reverts to queued and pauses the agent when execution returns a rate_limited result", async () => {
     const calls: string[] = [];
     let currentTask = createTask("queued");
-    const pauses: Array<{ agent: string; pausedUntil: number }> = [];
+    const pauses: Array<{ tool: string; pausedUntil: number }> = [];
 
     const daemon = new RunnerDaemon({
       queueStore: {
@@ -125,7 +125,7 @@ describe("RunnerDaemon", () => {
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       runStrategy: async () => {
         calls.push("execute");
-        return { status: "rate_limited", agentName: "claude" };
+        return { status: "rate_limited", toolName: "claude" };
       },
       logStore: {
         write: async (taskId, message) => {
@@ -136,8 +136,8 @@ describe("RunnerDaemon", () => {
       pollIntervalMs: 10,
       rateLimitStateStore: {
         loadActivePauses: async () => new Map(),
-        pause: async (agent, pausedUntil) => {
-          pauses.push({ agent, pausedUntil });
+        pause: async (tool, pausedUntil) => {
+          pauses.push({ tool, pausedUntil });
         },
       },
       rateLimitCooldownMs: 60_000,
@@ -148,7 +148,7 @@ describe("RunnerDaemon", () => {
     await daemon.waitForIdle();
 
     assert.deepEqual(pauses, [
-      { agent: "claude", pausedUntil: 5_060_000 },
+      { tool: "claude", pausedUntil: 5_060_000 },
     ]);
     assert.ok(calls.includes("revert:task_1"));
     assert.ok(calls.some((c) => c.startsWith("log:task_1:rate-limited")));
@@ -240,7 +240,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
-      runStrategy: async () => ({ status: "rate_limited", agentName: "claude" }),
+      runStrategy: async () => ({ status: "rate_limited", toolName: "claude" }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -399,7 +399,7 @@ describe("RunnerDaemon", () => {
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       runStrategy: async () => ({
         status: "rate_limited",
-        agentName: "claude",
+        toolName: "claude",
       }),
       logStore: {
         write: async () => {},

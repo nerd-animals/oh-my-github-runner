@@ -17,7 +17,7 @@ export type PromptFragment =
   | { kind: "user"; text: string };
 
 export interface AiRunOptions {
-  agent: string;
+  tool: string;
   prompt: readonly PromptFragment[];
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
@@ -27,7 +27,7 @@ export interface AiRunOptions {
 export type AiRunResult =
   | { kind: "succeeded"; stdout: string }
   | { kind: "failed"; errorSummary: string }
-  | { kind: "rate_limited"; agentName: string };
+  | { kind: "rate_limited"; toolName: string };
 
 export interface DisposableWorkspace extends AsyncDisposable {
   readonly path: string;
@@ -79,7 +79,7 @@ export interface Toolkit {
 export type ExecuteResult =
   | { status: "succeeded" }
   | { status: "failed"; errorSummary: string }
-  | { status: "rate_limited"; agentName: string };
+  | { status: "rate_limited"; toolName: string };
 
 export interface StrategyPolicies {
   /** EnqueueService cancels prior active tasks on the same (repo, source). */

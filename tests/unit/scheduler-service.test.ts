@@ -7,14 +7,14 @@ function createTask(
   taskId: string,
   status: TaskRecord["status"],
   repoName: string,
-  agent: string = "claude",
+  tool: string = "claude",
 ): TaskRecord {
   return {
     taskId,
     repo: { owner: "octo", name: repoName },
     source: { kind: "issue", number: Number(taskId.replace(/\D/g, "")) || 1 },
     instructionId: "issue-comment-reply",
-    agent,
+    tool,
     status,
     priority: "normal",
     requestedBy: "test",

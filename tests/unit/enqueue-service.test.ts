@@ -34,7 +34,7 @@ describe("EnqueueService", () => {
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "nope-not-a-real-strategy",
-        agent: "claude",
+        tool: "claude",
         requestedBy: "test",
       }),
       /no strategy is registered/i,
@@ -49,7 +49,7 @@ describe("EnqueueService", () => {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          agent: input.agent,
+          tool: input.tool,
           status: "queued",
           priority: input.priority ?? "normal",
           requestedBy: input.requestedBy,
@@ -79,13 +79,13 @@ describe("EnqueueService", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 100 },
       instructionId: "issue-implement",
-      agent: "claude",
+      tool: "claude",
       requestedBy: "test",
     });
 
     assert.equal(task.taskId, "task_1");
     assert.equal(task.status, "queued");
-    assert.equal(task.agent, "claude");
+    assert.equal(task.tool, "claude");
     assert.equal(task.instructionId, "issue-implement");
   });
 
@@ -97,7 +97,7 @@ describe("EnqueueService", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue" as const, number: 100 },
       instructionId: "issue-implement",
-      agent: "claude",
+      tool: "claude",
       status: "queued" as const,
       priority: "normal" as const,
       requestedBy: "alice",
@@ -111,7 +111,7 @@ describe("EnqueueService", () => {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          agent: input.agent,
+          tool: input.tool,
           status: "queued",
           priority: "normal",
           requestedBy: input.requestedBy,
@@ -142,7 +142,7 @@ describe("EnqueueService", () => {
       repo: { owner: "octo", name: "repo" },
       source: { kind: "issue", number: 100 },
       instructionId: "issue-implement",
-      agent: "claude",
+      tool: "claude",
       requestedBy: "alice",
     });
 

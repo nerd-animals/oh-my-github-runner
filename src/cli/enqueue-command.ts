@@ -8,7 +8,7 @@ export interface EnqueueCommandInput {
   sourceKind: "issue" | "pull_request";
   sourceNumber: number;
   instructionId: string;
-  agent: string;
+  tool: string;
 }
 
 export async function runEnqueueCommand(input: EnqueueCommandInput) {
@@ -29,7 +29,7 @@ export async function runEnqueueCommand(input: EnqueueCommandInput) {
       number: input.sourceNumber,
     },
     instructionId: input.instructionId,
-    agent: input.agent,
+    tool: input.tool,
     requestedBy: "cli",
   });
 }

@@ -78,7 +78,7 @@ describe("integration: issue-opened webhook produces an enqueued task", () => {
       assert.equal(tasks.length, 1);
       const task = tasks[0]!;
       assert.equal(task.instructionId, "issue-initial-review");
-      assert.equal(task.agent, "claude");
+      assert.equal(task.tool, "claude");
       assert.equal(task.status, "queued");
       assert.deepEqual(task.repo, {
         owner: REPO_OWNER,
