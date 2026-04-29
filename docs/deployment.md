@@ -86,10 +86,11 @@ the following are missing:
 - `GITHUB_APP_ID`
 - `GITHUB_APP_PRIVATE_KEY_PATH`
 - `GITHUB_WEBHOOK_SECRET`
-- `<TOOL>_COMMAND` (binary path) for each tool you want to enable. Known
-  tool names live in `KNOWN_TOOLS` in `src/services/tool-registry.ts`; the
-  runner refuses to start if none of them have a `_COMMAND` set. The argv
-  passed to the binary lives in `definitions/tools/<name>.yaml`, not env.
+- `<TOOL>_COMMAND` (binary path) for each tool you want to enable. The
+  supported set is hardcoded in `loadToolConfigFromEnv`
+  (`src/services/tool-registry.ts`); the runner refuses to start if none
+  of them have a `_COMMAND` set. The argv passed to the binary lives in
+  `definitions/tools/<name>.yaml`, not env.
 - `ALLOWED_SENDER_IDS` (comma-separated GitHub user IDs allowed to trigger
   tasks via webhook; events from any other sender are dropped before
   enqueue. Look up an id with `gh api /users/<login> --jq .id`.)

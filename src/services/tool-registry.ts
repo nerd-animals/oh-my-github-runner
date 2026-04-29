@@ -33,14 +33,6 @@ export class ToolRegistry {
   }
 }
 
-export function normalizeToolName(name: string): string {
-  return name.toUpperCase().replace(/-/g, "_");
-}
-
-/** All tools this build knows about. Adding a new tool here is the source
- *  of truth; the operator activates one by setting `<NAME>_COMMAND` in env. */
-export const KNOWN_TOOLS = ["claude"] as const;
-
 export interface ToolEnvConfig {
   tools: string[];
   /** Per-tool binary path (the deploy-specific bit). The argv list comes from
@@ -48,23 +40,21 @@ export interface ToolEnvConfig {
   commands: Record<string, string>;
 }
 
+// Each tool has its own `<NAME>_COMMAND` env block below. Adding a new tool
+// is "add a block here + add a yaml under definitions/tools/" — no scanning,
+// no string-built keys, no list to keep in sync.
 export function loadToolConfigFromEnv(env: NodeJS.ProcessEnv): ToolEnvConfig {
   const tools: string[] = [];
   const commands: Record<string, string> = {};
 
-  for (const name of KNOWN_TOOLS) {
-    const command = env[`${normalizeToolName(name)}_COMMAND`];
-    if (command !== undefined && command.length > 0) {
-      tools.push(name);
-      commands[name] = command;
-    }
+  if (env.CLAUDE_COMMAND !== undefined && env.CLAUDE_COMMAND.length > 0) {
+    tools.push("claude");
+    commands.claude = env.CLAUDE_COMMAND;
   }
 
   if (tools.length === 0) {
     throw new Error(
-      `No tool enabled — set at least one <NAME>_COMMAND env var (known: ${KNOWN_TOOLS.join(
-        ", ",
-      )})`,
+      "No tool enabled — set at least one <NAME>_COMMAND env var (e.g. CLAUDE_COMMAND)",
     );
   }
 

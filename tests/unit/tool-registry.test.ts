@@ -4,20 +4,11 @@ import type { ToolRunner } from "../../src/domain/ports/tool-runner.js";
 import {
   ToolRegistry,
   loadToolConfigFromEnv,
-  normalizeToolName,
 } from "../../src/services/tool-registry.js";
 
 const stubRunner: ToolRunner = {
   run: async () => ({ kind: "succeeded", stdout: "" }),
 };
-
-describe("normalizeToolName", () => {
-  test("uppercases and replaces hyphens with underscores", () => {
-    assert.equal(normalizeToolName("claude"), "CLAUDE");
-    assert.equal(normalizeToolName("codex-cli"), "CODEX_CLI");
-    assert.equal(normalizeToolName("foo-bar-baz"), "FOO_BAR_BAZ");
-  });
-});
 
 describe("ToolRegistry", () => {
   test("resolves a registered tool runner", () => {
