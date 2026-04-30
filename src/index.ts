@@ -11,6 +11,7 @@ import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { ClaudeToolRunner } from "./infra/tool/claude-tool-runner.js";
+import { CodexToolRunner } from "./infra/tool/codex-tool-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -135,6 +136,18 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
         processRunner,
         workspacesDir,
         claudeHome,
+      }),
+    });
+  }
+  if (
+    process.env.CODEX_COMMAND !== undefined &&
+    process.env.CODEX_COMMAND.length > 0
+  ) {
+    toolEntries.push({
+      name: "codex",
+      runner: new CodexToolRunner({
+        command: process.env.CODEX_COMMAND,
+        processRunner,
       }),
     });
   }
