@@ -38,6 +38,7 @@ export interface TaskRecord {
   repo: RepoRef;
   source: SourceRef;
   instructionId: string;
+  /** Snapshot of the strategy's `policies.tool` at enqueue. Strategies must not read this — toolkit routes ai.run. */
   tool: string;
   additionalInstructions?: string;
   status: TaskStatus;
