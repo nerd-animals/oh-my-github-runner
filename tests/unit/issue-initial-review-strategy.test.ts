@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { issueInitialReviewStrategy } from "../../src/strategies/issue-initial-review.js";
+import { issueInitialReviewStrategy } from "../../src/strategies/issue-initial-review/index.js";
+import { TOOL_MAP } from "../../src/strategies/issue-initial-review/persona-tool-map.js";
 import { COLLECT_ONLY_ALLOWED } from "../../src/strategies/_shared/tool-presets.js";
 import type {
   AiRunOptions,
@@ -31,8 +32,17 @@ const issueContext: GitHubSourceContext = {
   linkedRefs: { closes: [], bodyMentions: [] },
 };
 
+/**
+ * The strategy issues 5 calls to ai.run: 4 personas (architect/test/ops/maintenance)
+ * + 1 publisher. The mock routes by the persona fragment in the prompt, so order
+ * does not matter (Promise.all).
+ *
+ * `publisherResult` defaults to a succeeded synthesis so existing scripts can stay
+ * focused on the persona phase.
+ */
 function makeToolkit(options: {
-  aiResults: ReadonlyArray<AiRunResult>;
+  resultsByPersona: Record<string, AiRunResult>;
+  publisherResult?: AiRunResult;
 }): {
   tk: Toolkit;
   aiCalls: AiRunOptions[];
@@ -42,7 +52,6 @@ function makeToolkit(options: {
   const aiCalls: AiRunOptions[] = [];
   const postedIssueComments: Array<{ issueNumber: number; body: string }> = [];
   const postedPrComments: Array<{ prNumber: number; body: string }> = [];
-  let resultIdx = 0;
 
   const observeWs: DisposableWorkspace = {
     path: "/tmp/observe",
@@ -54,6 +63,11 @@ function makeToolkit(options: {
     branchName: "ai/issue-7-test",
     baseBranch: "main",
     [Symbol.asyncDispose]: async () => {},
+  };
+
+  const publisherDefault: AiRunResult = {
+    kind: "succeeded",
+    stdout: "## 한 줄 요약\n캐시 도입 검토 필요.\n",
   };
 
   const tk: Toolkit = {
@@ -75,10 +89,22 @@ function makeToolkit(options: {
     ai: {
       run: async (opts) => {
         aiCalls.push(opts);
-        const result = options.aiResults[resultIdx];
-        resultIdx += 1;
+        const personaFragment = opts.prompt.find(
+          (frag) => frag.kind === "file" && frag.path.startsWith("personas/"),
+        );
+        const personaId =
+          personaFragment?.kind === "file"
+            ? personaFragment.path.replace("personas/", "")
+            : null;
+        if (personaId === null) {
+          throw new Error("ai.run called without a persona fragment");
+        }
+        if (personaId === "publisher") {
+          return options.publisherResult ?? publisherDefault;
+        }
+        const result = options.resultsByPersona[personaId];
         if (result === undefined) {
-          throw new Error(`ai.run called more times than expected: ${resultIdx}`);
+          throw new Error(`no scripted result for persona '${personaId}'`);
         }
         return result;
       },
@@ -90,15 +116,26 @@ function makeToolkit(options: {
   return { tk, aiCalls, postedIssueComments, postedPrComments };
 }
 
-describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
-  test("calls ai.run once per persona in order, each with COLLECT_ONLY tool preset", async () => {
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "architect findings" },
-      { kind: "succeeded", stdout: "test findings" },
-      { kind: "succeeded", stdout: "ops findings" },
-      { kind: "succeeded", stdout: "maintenance findings" },
-    ];
-    const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
+const ALL_SUCCEEDED: Record<string, AiRunResult> = {
+  architect: { kind: "succeeded", stdout: "architect findings" },
+  test: { kind: "succeeded", stdout: "test findings" },
+  ops: { kind: "succeeded", stdout: "ops findings" },
+  maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+};
+
+describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
+  test("declares all three tools in policies.uses so the daemon waits for all to be rate-limit-clear", () => {
+    assert.deepEqual(issueInitialReviewStrategy.policies.uses, {
+      claude: true,
+      codex: true,
+      gemini: true,
+    });
+  });
+
+  test("runs all four personas with COLLECT_ONLY preset and persona-mapped tool", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: ALL_SUCCEEDED,
+    });
 
     const result = await issueInitialReviewStrategy.run(
       task,
@@ -107,52 +144,181 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     );
 
     assert.deepEqual(result, { status: "succeeded" });
-    assert.equal(aiCalls.length, 4);
+    // 4 personas + 1 publisher.
+    assert.equal(aiCalls.length, 5);
 
-    const personaOrder = aiCalls.map((call) => {
-      const personaFragment = call.prompt.find(
-        (frag) => frag.kind === "file" && frag.path.startsWith("personas/"),
+    const personaCalls = aiCalls.filter((call) => {
+      const frag = call.prompt.find(
+        (f) => f.kind === "file" && f.path.startsWith("personas/"),
       );
-      return personaFragment?.kind === "file" ? personaFragment.path : "?";
+      if (frag?.kind !== "file") return false;
+      return frag.path !== "personas/publisher";
     });
-    assert.deepEqual(personaOrder, [
-      "personas/architect",
-      "personas/test",
-      "personas/ops",
-      "personas/maintenance",
-    ]);
+    assert.equal(personaCalls.length, 4);
 
-    for (const call of aiCalls) {
+    const personaPaths = new Set(
+      personaCalls.map((call) => {
+        const frag = call.prompt.find(
+          (f) => f.kind === "file" && f.path.startsWith("personas/"),
+        );
+        return frag?.kind === "file" ? frag.path : "?";
+      }),
+    );
+    assert.deepEqual(
+      personaPaths,
+      new Set([
+        "personas/architect",
+        "personas/test",
+        "personas/ops",
+        "personas/maintenance",
+      ]),
+    );
+
+    for (const call of personaCalls) {
+      const frag = call.prompt.find(
+        (f) => f.kind === "file" && f.path.startsWith("personas/"),
+      );
+      const personaId =
+        frag?.kind === "file" ? frag.path.replace("personas/", "") : null;
+      assert.ok(personaId);
+      assert.equal(
+        call.tool,
+        TOOL_MAP[personaId as keyof typeof TOOL_MAP],
+        `persona '${personaId}' should use mapped tool`,
+      );
       assert.equal(call.allowedTools, COLLECT_ONLY_ALLOWED);
-      assert.equal(call.disallowedTools, undefined);
-      const collectOnlyFragment = call.prompt.find(
-        (frag) =>
-          frag.kind === "file" && frag.path === "modes/collect-only",
-      );
-      assert.ok(
-        collectOnlyFragment,
-        "every persona invocation must include the collect-only mode fragment",
-      );
     }
 
     assert.equal(postedIssueComments.length, 1);
     const posted = postedIssueComments[0]!;
     assert.equal(posted.issueNumber, 7);
-    assert.match(posted.body, /Architect 관점/);
-    assert.match(posted.body, /Test 관점/);
-    assert.match(posted.body, /Ops 관점/);
-    assert.match(posted.body, /Maintenance 관점/);
+    // Synthesis at top.
+    assert.match(posted.body, /한 줄 요약/);
+    assert.match(posted.body, /캐시 도입 검토 필요/);
+    // Appendix with collapsible details and tool labels.
+    assert.match(posted.body, /<details><summary>Architect 관점 \(claude\)<\/summary>/);
+    assert.match(posted.body, /<details><summary>Test 관점 \(codex\)<\/summary>/);
+    assert.match(posted.body, /<details><summary>Ops 관점 \(gemini\)<\/summary>/);
+    assert.match(posted.body, /<details><summary>Maintenance 관점 \(codex\)<\/summary>/);
     assert.match(posted.body, /architect findings/);
     assert.match(posted.body, /maintenance findings/);
   });
 
-  test("aborts and returns failed when a persona run errors out, posts no comment", async () => {
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "architect findings" },
-      { kind: "succeeded", stdout: "test findings" },
-      { kind: "failed", errorSummary: "ops explorer crashed" },
-    ];
-    const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
+  test("publisher runs with gemini tool", async () => {
+    const { tk, aiCalls } = makeToolkit({ resultsByPersona: ALL_SUCCEEDED });
+
+    await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    const publisherCall = aiCalls.find((call) =>
+      call.prompt.some(
+        (f) => f.kind === "file" && f.path === "personas/publisher",
+      ),
+    );
+    assert.ok(publisherCall, "publisher must be invoked");
+    assert.equal(publisherCall.tool, "gemini");
+  });
+
+  test("publisher rate_limited → fallback comment with appendix only", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: ALL_SUCCEEDED,
+      publisherResult: { kind: "rate_limited", toolName: "gemini" },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(aiCalls.length, 5);
+    assert.equal(postedIssueComments.length, 1);
+    const body = postedIssueComments[0]!.body;
+    assert.match(body, /통합 요약 생성에 실패했습니다/);
+    assert.match(body, /publisher \(gemini\) rate-limited/);
+    assert.match(body, /<details><summary>Architect 관점/);
+    assert.match(body, /<details><summary>Maintenance 관점/);
+    assert.doesNotMatch(body, /캐시 도입 검토 필요/); // synthesis must not appear
+  });
+
+  test("publisher failed → fallback comment with appendix only", async () => {
+    const { tk, postedIssueComments } = makeToolkit({
+      resultsByPersona: ALL_SUCCEEDED,
+      publisherResult: { kind: "failed", errorSummary: "gemini boom" },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.deepEqual(result, { status: "succeeded" });
+    const body = postedIssueComments[0]!.body;
+    assert.match(body, /통합 요약 생성에 실패했습니다/);
+    assert.match(body, /gemini boom/);
+    assert.match(body, /<details><summary>Architect 관점/);
+  });
+
+  test("returns rate_limited when any persona is rate_limited (publisher does not run)", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "rate_limited", toolName: "gemini" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.equal(result.toolName, "gemini");
+    // Only personas ran; publisher must not have been invoked.
+    assert.equal(aiCalls.length, 4);
+    assert.equal(postedIssueComments.length, 0);
+  });
+
+  test("rate_limited wins over failed when both are present in personas", async () => {
+    const { tk, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "failed", errorSummary: "codex crashed" },
+        ops: { kind: "rate_limited", toolName: "gemini" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.equal(result.toolName, "gemini");
+    assert.equal(postedIssueComments.length, 0);
+  });
+
+  test("returns failed when any persona fails and none are rate_limited", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "failed", errorSummary: "ops explorer crashed" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
 
     const result = await issueInitialReviewStrategy.run(
       task,
@@ -163,32 +329,22 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     assert.equal(result.status, "failed");
     if (result.status !== "failed") return;
     assert.match(result.errorSummary, /ops explorer crashed/);
-    assert.equal(aiCalls.length, 3);
+    assert.equal(aiCalls.length, 4);
     assert.equal(postedIssueComments.length, 0);
   });
 
-  test("respects an externally aborted signal before launching the next persona", async () => {
+  test("respects an aborted signal at strategy entry", async () => {
     const ac = new AbortController();
-    let count = 0;
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "arch" },
-      { kind: "succeeded", stdout: "impl" },
-    ];
-    const { tk } = makeToolkit({ aiResults });
-    // Wrap ai.run so it aborts after the second call.
-    const originalRun = tk.ai.run.bind(tk.ai);
-    tk.ai.run = async (opts) => {
-      const r = await originalRun(opts);
-      count += 1;
-      if (count === 2) {
-        ac.abort();
-      }
-      return r;
-    };
+    ac.abort();
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: ALL_SUCCEEDED,
+    });
 
     await assert.rejects(
       issueInitialReviewStrategy.run(task, tk, ac.signal),
       /aborted|abort/i,
     );
+    assert.equal(aiCalls.length, 0);
+    assert.equal(postedIssueComments.length, 0);
   });
 });
