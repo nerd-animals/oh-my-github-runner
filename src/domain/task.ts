@@ -50,6 +50,4 @@ export interface TaskRecord {
   /** Set when status === "superseded" to point at the replacing task. */
   supersededBy?: string;
   notifications?: TaskNotifications;
-  /** @deprecated read-only legacy fallback; new records use `notifications.sticky`. */
-  stickyComment?: StickyCommentRef;
 }

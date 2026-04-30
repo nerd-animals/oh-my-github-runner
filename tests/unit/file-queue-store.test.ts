@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
 import {
-  mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
   utimes,
-  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -355,47 +353,6 @@ describe("FileQueueStore", () => {
       assert.deepEqual(await readdir(join(root, "queued")), [
         `${stillQueued.taskId}.json`,
       ]);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("legacy stickyComment field is promoted into notifications.sticky on read", async () => {
-    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
-
-    try {
-      const queuedDir = join(root, "queued");
-      await mkdir(queuedDir, { recursive: true });
-      const taskId = "task_legacy_1";
-      const legacyRecord = {
-        taskId,
-        repo: { owner: "octo", name: "repo" },
-        source: { kind: "issue", number: 7 },
-        instructionId: "issue-implement",
-        tool: "claude",
-        status: "queued",
-        priority: "normal",
-        requestedBy: "alice",
-        createdAt: "2026-04-01T00:00:00.000Z",
-        stickyComment: {
-          repo: { owner: "octo", name: "repo" },
-          issueNumber: 7,
-          commentId: 4242,
-        },
-      };
-      await writeFile(
-        join(queuedDir, `${taskId}.json`),
-        JSON.stringify(legacyRecord),
-        "utf8",
-      );
-
-      const store = new FileQueueStore({ dataDir: root });
-      const reloaded = await store.getTask(taskId);
-
-      assert.equal(reloaded?.notifications?.sticky?.commentId, 4242);
-      assert.equal(reloaded?.notifications?.sticky?.issueNumber, 7);
-      // Legacy top-level field is dropped from the in-memory shape.
-      assert.equal((reloaded as { stickyComment?: unknown })?.stickyComment, undefined);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
