@@ -7,7 +7,6 @@
     "build": "tsc --noEmit",
     "compile": "tsc -p tsconfig.runtime.json",
     "test": "tsc -p tsconfig.test.json && node tools/run-tests.mjs",
-    "enqueue": "npm run compile && node dist/src/cli/main.js enqueue",
     "daemon": "npm run compile && node dist/src/index.js"
   },
   "devDependencies": {

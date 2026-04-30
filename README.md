@@ -6,7 +6,6 @@ Single-VM queue consumer and executor for GitHub-native AI coding tasks.
 
 - `definitions/prompts`: prompt fragments composed by strategies
 - `definitions/tools`: per-tool yaml descriptors (argv, rate-limit signatures)
-- `src/cli`: local enqueue entrypoints
 - `src/daemon`: long-running queue poller
 - `src/domain`: core types and contracts
 - `src/strategies`: per-instruction runtime behavior (id-keyed registry)
