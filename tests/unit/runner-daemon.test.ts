@@ -10,13 +10,14 @@ function createTask(status: TaskRecord["status"]): TaskRecord {
     repo: { owner: "octo", name: "repo" },
     source: { kind: "issue", number: 100 },
     instructionId: "issue-comment-reply",
-    tool: "claude",
     status,
     priority: "normal",
     requestedBy: "test",
     createdAt: "2026-04-24T00:00:00.000Z",
   };
 }
+
+const stubToolsForTask = (): readonly string[] => ["claude"];
 
 describe("RunnerDaemon", () => {
   test("initializes recovery and processes one queued task", async () => {
@@ -63,6 +64,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => {
         calls.push("execute");
         return { status: "succeeded" };
@@ -123,6 +125,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => {
         calls.push("execute");
         return { status: "rate_limited", toolName: "claude" };
@@ -192,6 +195,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => {
         throw new Error("getSourceContext network failure");
       },
@@ -244,6 +248,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => ({ status: "rate_limited", toolName: "claude" }),
       logStore: {
         write: async () => {},
@@ -299,6 +304,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "failed",
         errorSummary: "boom",
@@ -359,6 +365,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => ({ status: "succeeded" }),
       logStore: {
         write: async () => {},
@@ -407,6 +414,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "rate_limited",
         toolName: "claude",
@@ -478,6 +486,7 @@ describe("RunnerDaemon", () => {
         pruneTerminalTasks: async () => 0,
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async (_task, signal) => {
         signal.addEventListener("abort", () => {
           resolveStrategy?.({

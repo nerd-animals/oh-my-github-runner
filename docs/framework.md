@@ -36,7 +36,7 @@ Allow-list is default-deny; everything not listed is implicitly forbidden. Use `
 - Call `tk.workspace.prepare*` and `tk.github.fetchContext` **before** `tk.ai.run`. Out of order = runtime failure.
 - Call `signal.throwIfAborted()` between awaits, otherwise `supersede` can't unwind cleanly.
 - Hold workspaces with `await using` — disposal cleans the branch and tool artifacts.
-- Declare the tool once in `policies.tool`. Don't read `task.tool` from inside `run()` — the toolkit routes for you.
+- Declare the tools the strategy may use in `policies.uses` (e.g. `{ claude: true, gemini: true }`). The toolkit refuses any `tk.ai.run({ tool })` not in that set; if `policies.uses` has a single tool, `opts.tool` is optional and inferred.
 
 ## Prompt fragments
 

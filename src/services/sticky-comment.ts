@@ -1,10 +1,12 @@
 import type { TaskRecord } from "../domain/task.js";
+import { getStrategy, hasStrategy } from "../strategies/index.js";
 import type { TriggerLocation } from "./event-dispatcher.js";
 
 export interface StickyCommentMeta {
   taskId: string;
   instructionId: string;
-  tool: string;
+  /** Names of tools the strategy may route to (lookup of policies.uses). */
+  tools: readonly string[];
   requestedBy: string;
   trigger: TriggerLocation;
 }
@@ -27,23 +29,36 @@ function describeSource(task: TaskRecord): string {
   return `${task.source.kind === "issue" ? "issue" : "PR"} #${task.source.number}`;
 }
 
+function formatToolsCell(tools: readonly string[]): string {
+  if (tools.length === 0) return "`—`";
+  return tools.map((t) => `\`${t}\``).join(", ");
+}
+
+function lookupTaskTools(task: TaskRecord): readonly string[] {
+  if (!hasStrategy(task.instructionId)) return [];
+  return Object.keys(getStrategy(task.instructionId).policies.uses);
+}
+
 function queuedMetaTable(meta: StickyCommentMeta): string {
+  const toolsLabel = meta.tools.length === 1 ? "tool" : "tools";
   return [
     "| key | value |",
     "|---|---|",
     `| instruction | \`${meta.instructionId}\` |`,
-    `| tool | \`${meta.tool}\` |`,
+    `| ${toolsLabel} | ${formatToolsCell(meta.tools)} |`,
     `| triggered by | @${meta.requestedBy} |`,
     `| trigger | ${describeTrigger(meta.trigger)} |`,
   ].join("\n");
 }
 
 function taskMetaTable(task: TaskRecord): string {
+  const tools = lookupTaskTools(task);
+  const toolsLabel = tools.length === 1 ? "tool" : "tools";
   return [
     "| key | value |",
     "|---|---|",
     `| instruction | \`${task.instructionId}\` |`,
-    `| tool | \`${task.tool}\` |`,
+    `| ${toolsLabel} | ${formatToolsCell(tools)} |`,
     `| triggered by | @${task.requestedBy} |`,
     `| source | ${describeSource(task)} |`,
   ].join("\n");

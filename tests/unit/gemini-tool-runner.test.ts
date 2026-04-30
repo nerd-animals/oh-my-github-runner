@@ -19,7 +19,6 @@ const task: TaskRecord = {
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 7 },
   instructionId: "issue-comment-reply",
-  tool: "gemini",
   status: "running",
   priority: "normal",
   requestedBy: "test",

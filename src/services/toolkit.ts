@@ -20,13 +20,27 @@ export interface ToolkitFactoryOptions {
   toolRegistry: Pick<ToolRegistry, "resolve">;
   logStore: LogStore;
   promptRenderer: PromptRenderer;
+  /**
+   * Resolves the set of tool names a task may route to. Production wires
+   * this to `Object.keys(getStrategy(task.instructionId).policies.uses)`.
+   * The toolkit uses it for two things: validating `ai.run({ tool })`
+   * against the strategy's declared set, and fanning out
+   * `cleanupArtifacts` across every declared tool on workspace dispose.
+   */
+  toolsForTask: (task: TaskRecord) => readonly string[];
 }
 
 export class ToolkitFactory {
   constructor(private readonly options: ToolkitFactoryOptions) {}
 
   create(task: TaskRecord, signal?: AbortSignal): Toolkit {
-    return new ToolkitImpl(task, signal, this.options);
+    const declared = this.options.toolsForTask(task);
+    if (declared.length === 0) {
+      throw new Error(
+        `Strategy for instructionId='${task.instructionId}' declares no tools (policies.uses is empty)`,
+      );
+    }
+    return new ToolkitImpl(task, signal, this.options, declared);
   }
 }
 
@@ -48,6 +62,7 @@ class ToolkitImpl implements Toolkit {
     private readonly task: TaskRecord,
     private readonly signal: AbortSignal | undefined,
     private readonly options: ToolkitFactoryOptions,
+    private readonly declaredTools: readonly string[],
   ) {}
 
   readonly github = {
@@ -178,17 +193,23 @@ class ToolkitImpl implements Toolkit {
     },
   };
 
+  // Fan-out cleanup across every tool the strategy declared. Each
+  // runner's cleanupArtifacts is a no-op when there's nothing to clean,
+  // so iterating over the declared set is safe even for tools that
+  // never actually ran during this task.
   private async cleanupToolArtifacts(workspacePath: string): Promise<void> {
-    try {
-      await this.options.toolRegistry
-        .resolve(this.task.tool)
-        .cleanupArtifacts(workspacePath);
-    } catch (error) {
-      console.warn(
-        `[toolkit] cleanupArtifacts failed for task=${this.task.taskId} tool=${this.task.tool}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
+    for (const toolName of this.declaredTools) {
+      try {
+        await this.options.toolRegistry
+          .resolve(toolName)
+          .cleanupArtifacts(workspacePath);
+      } catch (error) {
+        console.warn(
+          `[toolkit] cleanupArtifacts failed for task=${this.task.taskId} tool=${toolName}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 
@@ -208,28 +229,37 @@ class ToolkitImpl implements Toolkit {
             "ai.run called before context was fetched - call tk.github.fetchContext first",
         };
       }
+      const toolName = this.resolveTool(opts);
+      if (toolName === null) {
+        return {
+          kind: "failed",
+          errorSummary: `ai.run requires opts.tool when strategy declares multiple tools (declared: ${this.declaredTools.join(", ")})`,
+        };
+      }
+      if (!this.declaredTools.includes(toolName)) {
+        return {
+          kind: "failed",
+          errorSummary: `ai.run: tool '${toolName}' is not in strategy's declared uses (${this.declaredTools.join(", ")})`,
+        };
+      }
       const promptText = this.options.promptRenderer.render(
         opts.prompt,
         this.cachedContext,
       );
-      const result = await this.options.toolRegistry
-        .resolve(this.task.tool)
-        .run({
-          task: this.task,
-          workspacePath: this.active.path,
-          prompt: promptText,
-          installationToken: this.active.installationToken,
-          ...(opts.allowedTools !== undefined
-            ? { allowedTools: opts.allowedTools }
-            : {}),
-          ...(opts.disallowedTools !== undefined
-            ? { disallowedTools: opts.disallowedTools }
-            : {}),
-          ...(opts.timeoutMs !== undefined
-            ? { timeoutMs: opts.timeoutMs }
-            : {}),
-          ...(this.signal !== undefined ? { signal: this.signal } : {}),
-        });
+      const result = await this.options.toolRegistry.resolve(toolName).run({
+        task: this.task,
+        workspacePath: this.active.path,
+        prompt: promptText,
+        installationToken: this.active.installationToken,
+        ...(opts.allowedTools !== undefined
+          ? { allowedTools: opts.allowedTools }
+          : {}),
+        ...(opts.disallowedTools !== undefined
+          ? { disallowedTools: opts.disallowedTools }
+          : {}),
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(this.signal !== undefined ? { signal: this.signal } : {}),
+      });
       if (result.kind === "succeeded") {
         return { kind: "succeeded", stdout: result.stdout };
       }
@@ -247,6 +277,16 @@ class ToolkitImpl implements Toolkit {
       await this.options.logStore.write(this.task.taskId, message);
     },
   };
+
+  private resolveTool(opts: AiRunOptions): string | null {
+    if (opts.tool !== undefined) {
+      return opts.tool;
+    }
+    if (this.declaredTools.length === 1) {
+      return this.declaredTools[0]!;
+    }
+    return null;
+  }
 
   private makeDisposable(input: {
     path: string;

@@ -22,6 +22,7 @@ import {
   renderRejection,
   type StickyCommentMeta,
 } from "./sticky-comment.js";
+import { getStrategy } from "../strategies/index.js";
 
 export interface WebhookHandlerDependencies {
   secret: string;
@@ -164,8 +165,9 @@ export class WebhookHandler {
     action: DispatchAction,
   ): void {
     if (action.kind === "enqueue") {
+      const tools = listStrategyTools(action.instructionId).join(",");
       console.log(
-        `[webhook] enqueue delivery=${deliveryId} event=${eventName} instruction=${action.instructionId} tool=${action.tool} repo=${action.repo.owner}/${action.repo.name} ${action.source.kind}=${action.source.number} requestedBy=${action.requestedBy}`,
+        `[webhook] enqueue delivery=${deliveryId} event=${eventName} instruction=${action.instructionId} tools=${tools} repo=${action.repo.owner}/${action.repo.name} ${action.source.kind}=${action.source.number} requestedBy=${action.requestedBy}`,
       );
       return;
     }
@@ -330,7 +332,7 @@ export class WebhookHandler {
     const meta: StickyCommentMeta = {
       taskId,
       instructionId: action.instructionId,
-      tool: action.tool,
+      tools: listStrategyTools(action.instructionId),
       requestedBy: action.requestedBy,
       trigger: action.trigger,
     };
@@ -377,7 +379,6 @@ export class WebhookHandler {
         repo: action.repo,
         source: action.source,
         instructionId: action.instructionId,
-        tool: action.tool,
         requestedBy: action.requestedBy,
         ...(notifications.sticky !== undefined ||
         notifications.trigger !== undefined
@@ -472,6 +473,10 @@ function readSender(
   }
 
   return { id: event.sender.id, login: event.sender.login };
+}
+
+function listStrategyTools(instructionId: string): string[] {
+  return Object.keys(getStrategy(instructionId).policies.uses);
 }
 
 function describeSender(payload: unknown): string {

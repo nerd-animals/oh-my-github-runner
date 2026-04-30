@@ -18,7 +18,6 @@ const task: TaskRecord = {
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 100 },
   instructionId: "issue-comment-reply",
-  tool: "claude",
   status: "running",
   priority: "normal",
   requestedBy: "test",

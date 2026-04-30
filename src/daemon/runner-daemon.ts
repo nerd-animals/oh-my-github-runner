@@ -15,6 +15,12 @@ export interface RunnerDaemonDependencies {
     task: TaskRecord,
     signal: AbortSignal,
   ) => Promise<ExecuteResult>;
+  /**
+   * Resolves the set of tool names a task may route to. Production wires
+   * this to `Object.keys(getStrategy(task.instructionId).policies.uses)`.
+   * Tests inject a stub.
+   */
+  toolsForTask: (task: TaskRecord) => readonly string[];
   logStore: LogStore;
   pollIntervalMs: number;
   rateLimit?: RateLimitDispatch;
@@ -135,6 +141,7 @@ export class RunnerDaemon {
     const nextTaskIds = this.dependencies.schedulerService.selectNextTasks({
       tasks,
       pausedTools,
+      toolsForTask: this.dependencies.toolsForTask,
     });
 
     if (nextTaskIds.length === 0) {
@@ -152,8 +159,9 @@ export class RunnerDaemon {
         task.taskId,
       );
 
+      const tools = this.dependencies.toolsForTask(task).join(",");
       console.log(
-        `[daemon] start task=${task.taskId} instruction=${task.instructionId} tool=${task.tool} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
+        `[daemon] start task=${task.taskId} instruction=${task.instructionId} tools=${tools} repo=${task.repo.owner}/${task.repo.name} ${task.source.kind}=${task.source.number}`,
       );
 
       const abort = new AbortController();

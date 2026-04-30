@@ -13,7 +13,6 @@ function makeDispatcher(options?: {
   allowedSenderIds?: ReadonlySet<number>;
 }): EventDispatcher {
   return new EventDispatcher({
-    resolveStrategyTool: () => "claude",
     botUserId: options?.botUserId ?? 9999,
     allowedSenderIds: options?.allowedSenderIds ?? new Set([100, 101, 102]),
   });
@@ -58,7 +57,6 @@ describe("EventDispatcher", () => {
     assert.equal(action.kind, "enqueue");
     if (action.kind !== "enqueue") return;
     assert.equal(action.instructionId, "issue-initial-review");
-    assert.equal(action.tool, "claude");
     assert.deepEqual(action.source, { kind: "issue", number: 7 });
     assert.equal(action.requestedBy, "alice");
   });

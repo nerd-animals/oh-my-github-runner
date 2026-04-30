@@ -8,6 +8,7 @@ export interface SchedulerServiceOptions {
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
   pausedTools?: ReadonlySet<string>;
+  toolsForTask: (task: TaskRecord) => readonly string[];
 }
 
 export class SchedulerService {
