@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { TaskRecord } from "../../src/domain/task.js";
-import { issueInitialReviewStrategy } from "../../src/strategies/issue-initial-review.js";
+import { issueInitialReviewStrategy } from "../../src/strategies/issue-initial-review/index.js";
+import { TOOL_MAP } from "../../src/strategies/issue-initial-review/persona-tool-map.js";
 import {
   COLLECT_ONLY_ALLOWED,
   COLLECT_ONLY_DISALLOWED,
@@ -36,7 +37,8 @@ const issueContext: GitHubSourceContext = {
 };
 
 function makeToolkit(options: {
-  aiResults: ReadonlyArray<AiRunResult>;
+  /** Per-persona-id result map. ai.run picks the result by the persona fragment in the prompt. */
+  resultsByPersona: Record<string, AiRunResult>;
 }): {
   tk: Toolkit;
   aiCalls: AiRunOptions[];
@@ -46,7 +48,6 @@ function makeToolkit(options: {
   const aiCalls: AiRunOptions[] = [];
   const postedIssueComments: Array<{ issueNumber: number; body: string }> = [];
   const postedPrComments: Array<{ prNumber: number; body: string }> = [];
-  let resultIdx = 0;
 
   const observeWs: DisposableWorkspace = {
     path: "/tmp/observe",
@@ -79,10 +80,19 @@ function makeToolkit(options: {
     ai: {
       run: async (opts) => {
         aiCalls.push(opts);
-        const result = options.aiResults[resultIdx];
-        resultIdx += 1;
+        const personaFragment = opts.prompt.find(
+          (frag) => frag.kind === "file" && frag.path.startsWith("personas/"),
+        );
+        const personaId =
+          personaFragment?.kind === "file"
+            ? personaFragment.path.replace("personas/", "")
+            : null;
+        if (personaId === null) {
+          throw new Error("ai.run called without a persona fragment");
+        }
+        const result = options.resultsByPersona[personaId];
         if (result === undefined) {
-          throw new Error(`ai.run called more times than expected: ${resultIdx}`);
+          throw new Error(`no scripted result for persona '${personaId}'`);
         }
         return result;
       },
@@ -94,15 +104,16 @@ function makeToolkit(options: {
   return { tk, aiCalls, postedIssueComments, postedPrComments };
 }
 
-describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
-  test("calls ai.run once per persona in order, each with COLLECT_ONLY tool preset", async () => {
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "architect findings" },
-      { kind: "succeeded", stdout: "test findings" },
-      { kind: "succeeded", stdout: "ops findings" },
-      { kind: "succeeded", stdout: "maintenance findings" },
-    ];
-    const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
+describe("issueInitialReviewStrategy (parallel multi-persona collect-only)", () => {
+  test("runs all four personas with COLLECT_ONLY preset and persona-mapped tool", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "succeeded", stdout: "ops findings" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
 
     const result = await issueInitialReviewStrategy.run(
       task,
@@ -113,25 +124,44 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     assert.deepEqual(result, { status: "succeeded" });
     assert.equal(aiCalls.length, 4);
 
-    const personaOrder = aiCalls.map((call) => {
-      const personaFragment = call.prompt.find(
-        (frag) => frag.kind === "file" && frag.path.startsWith("personas/"),
-      );
-      return personaFragment?.kind === "file" ? personaFragment.path : "?";
-    });
-    assert.deepEqual(personaOrder, [
-      "personas/architect",
-      "personas/test",
-      "personas/ops",
-      "personas/maintenance",
-    ]);
+    // Order is not guaranteed under Promise.all, so assert as a set.
+    const personaPaths = new Set(
+      aiCalls
+        .map((call) => {
+          const frag = call.prompt.find(
+            (f) => f.kind === "file" && f.path.startsWith("personas/"),
+          );
+          return frag?.kind === "file" ? frag.path : "?";
+        })
+        .filter((p) => p !== "?"),
+    );
+    assert.deepEqual(
+      personaPaths,
+      new Set([
+        "personas/architect",
+        "personas/test",
+        "personas/ops",
+        "personas/maintenance",
+      ]),
+    );
 
+    // Each persona must use its mapped tool.
     for (const call of aiCalls) {
+      const frag = call.prompt.find(
+        (f) => f.kind === "file" && f.path.startsWith("personas/"),
+      );
+      const personaId =
+        frag?.kind === "file" ? frag.path.replace("personas/", "") : null;
+      assert.ok(personaId, "every call must reference a persona fragment");
+      assert.equal(
+        call.tool,
+        TOOL_MAP[personaId as keyof typeof TOOL_MAP],
+        `persona '${personaId}' should use mapped tool '${TOOL_MAP[personaId as keyof typeof TOOL_MAP]}'`,
+      );
       assert.equal(call.allowedTools, COLLECT_ONLY_ALLOWED);
       assert.equal(call.disallowedTools, COLLECT_ONLY_DISALLOWED);
       const collectOnlyFragment = call.prompt.find(
-        (frag) =>
-          frag.kind === "file" && frag.path === "modes/collect-only",
+        (f) => f.kind === "file" && f.path === "modes/collect-only",
       );
       assert.ok(
         collectOnlyFragment,
@@ -150,13 +180,59 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     assert.match(posted.body, /maintenance findings/);
   });
 
-  test("aborts and returns failed when a persona run errors out, posts no comment", async () => {
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "architect findings" },
-      { kind: "succeeded", stdout: "test findings" },
-      { kind: "failed", errorSummary: "ops explorer crashed" },
-    ];
-    const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
+  test("returns rate_limited when any persona is rate_limited (queue retries the whole task)", async () => {
+    const { tk, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "rate_limited", toolName: "gemini" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.equal(result.toolName, "gemini");
+    assert.equal(postedIssueComments.length, 0);
+  });
+
+  test("rate_limited wins over failed when both are present", async () => {
+    const { tk, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "failed", errorSummary: "codex crashed" },
+        ops: { kind: "rate_limited", toolName: "gemini" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.equal(result.toolName, "gemini");
+    assert.equal(postedIssueComments.length, 0);
+  });
+
+  test("returns failed when any persona fails and none are rate_limited", async () => {
+    const { tk, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "failed", errorSummary: "ops explorer crashed" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
 
     const result = await issueInitialReviewStrategy.run(
       task,
@@ -167,32 +243,26 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     assert.equal(result.status, "failed");
     if (result.status !== "failed") return;
     assert.match(result.errorSummary, /ops explorer crashed/);
-    assert.equal(aiCalls.length, 3);
     assert.equal(postedIssueComments.length, 0);
   });
 
-  test("respects an externally aborted signal before launching the next persona", async () => {
+  test("respects an aborted signal at strategy entry", async () => {
     const ac = new AbortController();
-    let count = 0;
-    const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "arch" },
-      { kind: "succeeded", stdout: "impl" },
-    ];
-    const { tk } = makeToolkit({ aiResults });
-    // Wrap ai.run so it aborts after the second call.
-    const originalRun = tk.ai.run.bind(tk.ai);
-    tk.ai.run = async (opts) => {
-      const r = await originalRun(opts);
-      count += 1;
-      if (count === 2) {
-        ac.abort();
-      }
-      return r;
-    };
+    ac.abort();
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "succeeded", stdout: "test findings" },
+        ops: { kind: "succeeded", stdout: "ops findings" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
 
     await assert.rejects(
       issueInitialReviewStrategy.run(task, tk, ac.signal),
       /aborted|abort/i,
     );
+    assert.equal(aiCalls.length, 0);
+    assert.equal(postedIssueComments.length, 0);
   });
 });
