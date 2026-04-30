@@ -1,6 +1,6 @@
 import { issueCommentReplyStrategy } from "./issue-comment-reply.js";
 import { issueImplementStrategy } from "./issue-implement.js";
-import { issueInitialReviewStrategy } from "./issue-initial-review.js";
+import { issueInitialReviewStrategy } from "./issue-initial-review/index.js";
 import { prImplementStrategy } from "./pr-implement.js";
 import { prReviewCommentStrategy } from "./pr-review-comment.js";
 import type { Strategy } from "./types.js";
