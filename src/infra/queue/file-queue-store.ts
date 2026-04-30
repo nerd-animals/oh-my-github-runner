@@ -28,6 +28,12 @@ const TERMINAL_STATUSES = ["succeeded", "failed", "superseded"] as const;
 
 export class FileQueueStore implements QueueStore {
   private readonly dataDir: string;
+  // Monotonic guard: when two enqueue() calls land in the same millisecond,
+  // bump the next createdAt by +1ms so the FIFO sort key stays strictly
+  // increasing. Without this the sort tie-breaks on readdir order, which is
+  // filesystem-dependent (alphabetical on most ext4/tmpfs) and breaks the
+  // "queued tasks come out in enqueue order" contract.
+  private lastCreatedAtMs = 0;
 
   constructor(options: FileQueueStoreOptions) {
     this.dataDir = options.dataDir;
@@ -52,7 +58,7 @@ export class FileQueueStore implements QueueStore {
       status: "queued",
       priority: input.priority ?? "normal",
       requestedBy: input.requestedBy,
-      createdAt: new Date().toISOString(),
+      createdAt: this.nextCreatedAt(),
       ...(input.notifications !== undefined &&
       (input.notifications.sticky !== undefined ||
         input.notifications.trigger !== undefined)
@@ -199,6 +205,13 @@ export class FileQueueStore implements QueueStore {
       }
     }
     return pruned;
+  }
+
+  private nextCreatedAt(): string {
+    const now = Date.now();
+    const next = now > this.lastCreatedAtMs ? now : this.lastCreatedAtMs + 1;
+    this.lastCreatedAtMs = next;
+    return new Date(next).toISOString();
   }
 
   private statusDir(status: TaskStatus): string {

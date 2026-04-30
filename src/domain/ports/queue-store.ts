@@ -8,6 +8,11 @@ export interface CompleteTaskInput {
 
 export interface QueueStore {
   enqueue(task: QueueTaskInput): Promise<TaskRecord>;
+  /**
+   * Returns every task across all statuses. Within each status, queued tasks
+   * are ordered by `createdAt` (FIFO by enqueue order); ordering across
+   * statuses is implementation-defined.
+   */
   listTasks(): Promise<TaskRecord[]>;
   getTask(taskId: string): Promise<TaskRecord | undefined>;
   startTask(taskId: string): Promise<TaskRecord>;
