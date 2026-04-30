@@ -17,24 +17,27 @@ export interface RunnerDaemonDependencies {
   ) => Promise<ExecuteResult>;
   logStore: LogStore;
   pollIntervalMs: number;
-  rateLimitStateStore?: Pick<RateLimitStateStore, "loadActivePauses" | "pause">;
-  rateLimitCooldownMs?: number;
+  rateLimit?: RateLimitDispatch;
+  notifications?: TaskNotifications;
+  janitor?: JanitorConfig;
+  clock?: DaemonClock;
+}
+
+export interface RateLimitDispatch {
+  store: Pick<RateLimitStateStore, "loadActivePauses" | "pause">;
+  cooldownMs?: number;
   registeredTools?: readonly string[];
   idleWarningIntervalMs?: number;
-  retentionMs?: number;
-  pruneIntervalMs?: number;
-  now?: () => number;
-  warn?: (message: string) => void;
-  notifyTaskFailure?: (
-    task: TaskRecord,
-    errorSummary: string,
-  ) => Promise<void>;
-  notifyTaskSucceeded?: (task: TaskRecord) => Promise<void>;
-  notifyTaskRateLimited?: (task: TaskRecord) => Promise<void>;
-  notifyTaskSuperseded?: (
-    task: TaskRecord,
-    supersededBy: string,
-  ) => Promise<void>;
+}
+
+export interface TaskNotifications {
+  onFailure?: (task: TaskRecord, errorSummary: string) => Promise<void>;
+  onSucceeded?: (task: TaskRecord) => Promise<void>;
+  onRateLimited?: (task: TaskRecord) => Promise<void>;
+  onSuperseded?: (task: TaskRecord, supersededBy: string) => Promise<void>;
+}
+
+export interface JanitorConfig {
   /**
    * Optional janitor that runs once at startup. Receives the set of
    * taskIds that are still tracked in the queue (queued + running) and
@@ -44,6 +47,13 @@ export interface RunnerDaemonDependencies {
   cleanupOrphanWorkspaces?: (
     activeTaskIds: ReadonlySet<string>,
   ) => Promise<number>;
+  retentionMs?: number;
+  pruneIntervalMs?: number;
+}
+
+export interface DaemonClock {
+  now?: () => number;
+  warn?: (message: string) => void;
 }
 
 const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
@@ -71,21 +81,26 @@ export class RunnerDaemon {
 
   constructor(private readonly dependencies: RunnerDaemonDependencies) {
     this.rateLimitCooldownMs =
-      dependencies.rateLimitCooldownMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+      dependencies.rateLimit?.cooldownMs ?? DEFAULT_RATE_LIMIT_COOLDOWN_MS;
     this.idleWarningIntervalMs =
-      dependencies.idleWarningIntervalMs ?? DEFAULT_IDLE_WARNING_INTERVAL_MS;
-    this.retentionMs = dependencies.retentionMs ?? DEFAULT_RETENTION_MS;
+      dependencies.rateLimit?.idleWarningIntervalMs ??
+      DEFAULT_IDLE_WARNING_INTERVAL_MS;
+    this.retentionMs =
+      dependencies.janitor?.retentionMs ?? DEFAULT_RETENTION_MS;
     this.pruneIntervalMs =
-      dependencies.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
-    this.now = dependencies.now ?? (() => Date.now());
-    this.warn = dependencies.warn ?? ((message) => console.warn(message));
+      dependencies.janitor?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
+    this.now = dependencies.clock?.now ?? (() => Date.now());
+    this.warn =
+      dependencies.clock?.warn ?? ((message) => console.warn(message));
   }
 
   async initialize(): Promise<void> {
     await this.dependencies.queueStore.recoverRunningTasks(
       "daemon interrupted before completion",
     );
-    if (this.dependencies.cleanupOrphanWorkspaces !== undefined) {
+    const cleanupOrphanWorkspaces =
+      this.dependencies.janitor?.cleanupOrphanWorkspaces;
+    if (cleanupOrphanWorkspaces !== undefined) {
       try {
         const tasks = await this.dependencies.queueStore.listTasks();
         const active = new Set(
@@ -95,7 +110,7 @@ export class RunnerDaemon {
             )
             .map((task) => task.taskId),
         );
-        const removed = await this.dependencies.cleanupOrphanWorkspaces(active);
+        const removed = await cleanupOrphanWorkspaces(active);
         if (removed > 0) {
           console.log(
             `[daemon] cleanupOrphanWorkspaces removed ${removed} orphan workspace dir(s)`,
@@ -235,11 +250,12 @@ export class RunnerDaemon {
   }
 
   private async loadPausedTools(): Promise<ReadonlySet<string>> {
-    if (this.dependencies.rateLimitStateStore === undefined) {
+    const store = this.dependencies.rateLimit?.store;
+    if (store === undefined) {
       return new Set();
     }
 
-    const active = await this.dependencies.rateLimitStateStore.loadActivePauses();
+    const active = await store.loadActivePauses();
     return new Set(active.keys());
   }
 
@@ -247,7 +263,7 @@ export class RunnerDaemon {
     tasks: TaskRecord[],
     pausedTools: ReadonlySet<string>,
   ): void {
-    const registered = this.dependencies.registeredTools ?? [];
+    const registered = this.dependencies.rateLimit?.registeredTools ?? [];
 
     if (registered.length === 0) {
       return;
@@ -298,12 +314,10 @@ export class RunnerDaemon {
       console.log(
         `[daemon] superseded task=${task.taskId} by=${active.supersededBy}`,
       );
-      if (this.dependencies.notifyTaskSuperseded !== undefined) {
+      const onSuperseded = this.dependencies.notifications?.onSuperseded;
+      if (onSuperseded !== undefined) {
         try {
-          await this.dependencies.notifyTaskSuperseded(
-            task,
-            active.supersededBy,
-          );
+          await onSuperseded(task, active.supersededBy);
         } catch (error) {
           this.warn(
             `[daemon] notifyTaskSuperseded threw: ${
@@ -323,9 +337,10 @@ export class RunnerDaemon {
     if (result.status === "succeeded") {
       console.log(`[daemon] succeed task=${task.taskId}`);
 
-      if (this.dependencies.notifyTaskSucceeded !== undefined) {
+      const onSucceeded = this.dependencies.notifications?.onSucceeded;
+      if (onSucceeded !== undefined) {
         try {
-          await this.dependencies.notifyTaskSucceeded(task);
+          await onSucceeded(task);
         } catch (error) {
           this.warn(
             `[daemon] notifyTaskSucceeded threw: ${
@@ -339,12 +354,10 @@ export class RunnerDaemon {
         `[daemon] fail task=${task.taskId} error=${result.errorSummary}`,
       );
 
-      if (this.dependencies.notifyTaskFailure !== undefined) {
+      const onFailure = this.dependencies.notifications?.onFailure;
+      if (onFailure !== undefined) {
         try {
-          await this.dependencies.notifyTaskFailure(
-            task,
-            result.errorSummary,
-          );
+          await onFailure(task, result.errorSummary);
         } catch (error) {
           this.warn(
             `[daemon] notifyTaskFailure threw: ${
@@ -364,9 +377,10 @@ export class RunnerDaemon {
   ): Promise<void> {
     await this.dependencies.queueStore.revertToQueued(task.taskId);
 
-    if (this.dependencies.notifyTaskRateLimited !== undefined) {
+    const onRateLimited = this.dependencies.notifications?.onRateLimited;
+    if (onRateLimited !== undefined) {
       try {
-        await this.dependencies.notifyTaskRateLimited(task);
+        await onRateLimited(task);
       } catch (error) {
         this.warn(
           `[daemon] notifyTaskRateLimited threw: ${
@@ -376,12 +390,10 @@ export class RunnerDaemon {
       }
     }
 
-    if (this.dependencies.rateLimitStateStore !== undefined) {
+    const store = this.dependencies.rateLimit?.store;
+    if (store !== undefined) {
       const pausedUntil = this.now() + this.rateLimitCooldownMs;
-      await this.dependencies.rateLimitStateStore.pause(
-        toolName,
-        pausedUntil,
-      );
+      await store.pause(toolName, pausedUntil);
       console.warn(
         `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
       );

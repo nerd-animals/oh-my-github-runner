@@ -134,14 +134,16 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      rateLimitStateStore: {
-        loadActivePauses: async () => new Map(),
-        pause: async (tool, pausedUntil) => {
-          pauses.push({ tool, pausedUntil });
+      rateLimit: {
+        store: {
+          loadActivePauses: async () => new Map(),
+          pause: async (tool, pausedUntil) => {
+            pauses.push({ tool, pausedUntil });
+          },
         },
+        cooldownMs: 60_000,
       },
-      rateLimitCooldownMs: 60_000,
-      now: () => 5_000_000,
+      clock: { now: () => 5_000_000 },
     });
 
     await daemon.tick();
@@ -198,8 +200,10 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      notifyTaskFailure: async (task, errorSummary) => {
-        notified.push({ taskId: task.taskId, errorSummary });
+      notifications: {
+        onFailure: async (task, errorSummary) => {
+          notified.push({ taskId: task.taskId, errorSummary });
+        },
       },
     });
 
@@ -246,8 +250,10 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      notifyTaskFailure: async (task) => {
-        notified.push(task.taskId);
+      notifications: {
+        onFailure: async (task) => {
+          notified.push(task.taskId);
+        },
       },
     });
 
@@ -302,9 +308,11 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      warn: (message) => warnings.push(message),
-      notifyTaskFailure: async () => {
-        throw new Error("notify failed");
+      clock: { warn: (message) => warnings.push(message) },
+      notifications: {
+        onFailure: async () => {
+          throw new Error("notify failed");
+        },
       },
     });
 
@@ -357,8 +365,10 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      notifyTaskSucceeded: async (task) => {
-        notifiedSucceeded.push(task.taskId);
+      notifications: {
+        onSucceeded: async (task) => {
+          notifiedSucceeded.push(task.taskId);
+        },
       },
     });
 
@@ -406,8 +416,10 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      notifyTaskRateLimited: async (task) => {
-        notifiedRateLimited.push(task.taskId);
+      notifications: {
+        onRateLimited: async (task) => {
+          notifiedRateLimited.push(task.taskId);
+        },
       },
     });
 
@@ -480,11 +492,13 @@ describe("RunnerDaemon", () => {
         cleanupExpired: async () => {},
       },
       pollIntervalMs: 10,
-      notifyTaskFailure: async () => {
-        calls.push("notifyFailure");
-      },
-      notifyTaskSuperseded: async (task, supersededBy) => {
-        supersededNotifications.push({ taskId: task.taskId, supersededBy });
+      notifications: {
+        onFailure: async () => {
+          calls.push("notifyFailure");
+        },
+        onSuperseded: async (task, supersededBy) => {
+          supersededNotifications.push({ taskId: task.taskId, supersededBy });
+        },
       },
     });
 
