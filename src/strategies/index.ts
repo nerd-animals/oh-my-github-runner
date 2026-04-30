@@ -5,6 +5,7 @@ import { prImplementStrategy } from "./pr-implement.js";
 import { prReviewCommentStrategy } from "./pr-review-comment.js";
 import type { Strategy } from "./types.js";
 
+// Map key MUST equal `task.instructionId` produced at enqueue.
 export const strategies: ReadonlyMap<string, Strategy> = new Map<
   string,
   Strategy
