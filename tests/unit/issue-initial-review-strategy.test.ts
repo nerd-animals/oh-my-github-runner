@@ -97,11 +97,10 @@ function makeToolkit(options: {
 describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
   test("calls ai.run once per persona in order, each with COLLECT_ONLY tool preset", async () => {
     const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "arch findings" },
-      { kind: "succeeded", stdout: "impl findings" },
-      { kind: "succeeded", stdout: "infra findings" },
-      { kind: "succeeded", stdout: "product findings" },
-      { kind: "succeeded", stdout: "testing findings" },
+      { kind: "succeeded", stdout: "architect findings" },
+      { kind: "succeeded", stdout: "test findings" },
+      { kind: "succeeded", stdout: "ops findings" },
+      { kind: "succeeded", stdout: "maintenance findings" },
     ];
     const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
 
@@ -112,7 +111,7 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     );
 
     assert.deepEqual(result, { status: "succeeded" });
-    assert.equal(aiCalls.length, 5);
+    assert.equal(aiCalls.length, 4);
 
     const personaOrder = aiCalls.map((call) => {
       const personaFragment = call.prompt.find(
@@ -121,11 +120,10 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
       return personaFragment?.kind === "file" ? personaFragment.path : "?";
     });
     assert.deepEqual(personaOrder, [
-      "personas/architecture",
-      "personas/implementation",
-      "personas/infra",
-      "personas/product",
-      "personas/testing",
+      "personas/architect",
+      "personas/test",
+      "personas/ops",
+      "personas/maintenance",
     ]);
 
     for (const call of aiCalls) {
@@ -144,20 +142,19 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
     assert.equal(postedIssueComments.length, 1);
     const posted = postedIssueComments[0]!;
     assert.equal(posted.issueNumber, 7);
-    assert.match(posted.body, /Architecture 관점/);
-    assert.match(posted.body, /Implementation 관점/);
-    assert.match(posted.body, /Infra 관점/);
-    assert.match(posted.body, /Product 관점/);
-    assert.match(posted.body, /Testing 관점/);
-    assert.match(posted.body, /arch findings/);
-    assert.match(posted.body, /testing findings/);
+    assert.match(posted.body, /Architect 관점/);
+    assert.match(posted.body, /Test 관점/);
+    assert.match(posted.body, /Ops 관점/);
+    assert.match(posted.body, /Maintenance 관점/);
+    assert.match(posted.body, /architect findings/);
+    assert.match(posted.body, /maintenance findings/);
   });
 
   test("aborts and returns failed when a persona run errors out, posts no comment", async () => {
     const aiResults: AiRunResult[] = [
-      { kind: "succeeded", stdout: "arch findings" },
-      { kind: "succeeded", stdout: "impl findings" },
-      { kind: "failed", errorSummary: "infra explorer crashed" },
+      { kind: "succeeded", stdout: "architect findings" },
+      { kind: "succeeded", stdout: "test findings" },
+      { kind: "failed", errorSummary: "ops explorer crashed" },
     ];
     const { tk, aiCalls, postedIssueComments } = makeToolkit({ aiResults });
 
@@ -169,7 +166,7 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
 
     assert.equal(result.status, "failed");
     if (result.status !== "failed") return;
-    assert.match(result.errorSummary, /infra explorer crashed/);
+    assert.match(result.errorSummary, /ops explorer crashed/);
     assert.equal(aiCalls.length, 3);
     assert.equal(postedIssueComments.length, 0);
   });
