@@ -10,10 +10,7 @@ import { EnqueueService } from "./services/enqueue-service.js";
 import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
-import { HeadlessCommandToolRunner } from "./infra/tool/headless-command-tool-runner.js";
-import { createClaudeProjectsCleaner } from "./infra/tool/claude-projects-cleaner.js";
-import { RateLimitDetectingToolRunner } from "./infra/tool/rate-limit-detecting-tool-runner.js";
-import { loadToolDescriptor } from "./infra/tool/tool-descriptor.js";
+import { ClaudeToolRunner } from "./infra/tool/claude-tool-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -22,7 +19,7 @@ import { ToolkitFactory } from "./services/toolkit.js";
 import { getStrategy } from "./strategies/index.js";
 import {
   ToolRegistry,
-  loadToolConfigFromEnv,
+  type ToolRegistryEntry,
 } from "./services/tool-registry.js";
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
@@ -110,10 +107,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const workspacesDir = path.join(runnerRoot, "var", "workspaces");
   const claudeHome =
     process.env.CLAUDE_HOME ?? path.join(os.homedir(), ".claude");
-  const cleanupToolArtifacts = createClaudeProjectsCleaner({
-    workspacesDir,
-    claudeHome,
-  });
 
   const githubClient = new GitHubAppClient({
     appId: requireEnv("GITHUB_APP_ID"),
@@ -130,32 +123,28 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       ? { githubWebBaseUrl: process.env.GITHUB_WEB_BASE_URL }
       : {}),
   });
-  const toolConfig = loadToolConfigFromEnv(process.env);
-  const toolDefinitionsDir = path.join(
-    runnerRoot,
-    "definitions",
-    "tools",
-  );
-  const toolEntries = await Promise.all(
-    toolConfig.tools.map(async (name) => {
-      const descriptor = await loadToolDescriptor(toolDefinitionsDir, name);
-      const inner = new HeadlessCommandToolRunner({
-        command: toolConfig.commands[name]!,
-        args: [...descriptor.args],
+  const toolEntries: ToolRegistryEntry[] = [];
+  if (
+    process.env.CLAUDE_COMMAND !== undefined &&
+    process.env.CLAUDE_COMMAND.length > 0
+  ) {
+    toolEntries.push({
+      name: "claude",
+      runner: new ClaudeToolRunner({
+        command: process.env.CLAUDE_COMMAND,
         processRunner,
-      });
-
-      return {
-        name,
-        runner: new RateLimitDetectingToolRunner({
-          inner,
-          toolName: name,
-          config: descriptor.rateLimit,
-        }),
-      };
-    }),
-  );
+        workspacesDir,
+        claudeHome,
+      }),
+    });
+  }
+  if (toolEntries.length === 0) {
+    throw new Error(
+      "No tool enabled — set at least one <NAME>_COMMAND env var (e.g. CLAUDE_COMMAND)",
+    );
+  }
   const toolRegistry = new ToolRegistry(toolEntries);
+  const registeredTools = toolEntries.map((entry) => entry.name);
 
   const rateLimitStateStore = new RateLimitStateStore({
     filePath: path.join(runnerRoot, "var", "queue", "state.json"),
@@ -179,7 +168,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     toolRegistry,
     logStore,
     promptRenderer,
-    cleanupToolArtifacts,
   });
 
   const daemon = new RunnerDaemon({
@@ -196,7 +184,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     rateLimit: {
       store: rateLimitStateStore,
       cooldownMs: rateLimitCooldownMs,
-      registeredTools: toolConfig.tools,
+      registeredTools,
     },
     notifications: {
       onFailure: async (task, errorSummary) => {

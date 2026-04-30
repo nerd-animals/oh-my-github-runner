@@ -1,8 +1,5 @@
 import { header, mapAiFailure, ok } from "./_shared/helpers.js";
-import {
-  COLLECT_ONLY_ALLOWED,
-  COLLECT_ONLY_DISALLOWED,
-} from "./_shared/tool-presets.js";
+import { COLLECT_ONLY_ALLOWED } from "./_shared/tool-presets.js";
 import type { ExecuteResult, Strategy } from "./types.js";
 import type { TaskRecord } from "../domain/task.js";
 
@@ -43,7 +40,6 @@ export const issueInitialReviewStrategy: Strategy = {
           { kind: "user", text: task.additionalInstructions ?? "" },
         ],
         allowedTools: COLLECT_ONLY_ALLOWED,
-        disallowedTools: COLLECT_ONLY_DISALLOWED,
         timeoutMs: PER_PERSONA_TIMEOUT_MS,
       });
 

@@ -17,7 +17,19 @@ Hint sheet for code that isn't self-evident. Types and signatures live in code â
 ## Add an AI tool
 
 1. `<NAME>_COMMAND` env var (binary path).
-2. `definitions/tools/<name>.yaml` (descriptor). Rate-limit detection wraps the runner automatically.
+2. New `<Name>ToolRunner` class under `src/infra/tool/` implementing `ToolRunner` (`src/domain/ports/tool-runner.ts`). Owns argv, permission translation, rate-limit patterns, and `cleanupArtifacts`.
+3. Wire it in `src/index.ts` â€” push a `{ name, runner }` entry into `toolEntries` when the env var is set.
+
+## AI permission vocabulary
+
+`AiRunOptions.allowedTools` and `disallowedTools` use a portable spec, not any one tool's syntax. Each `ToolRunner` translates.
+
+```
+read, grep, glob, edit, write   built-in capabilities
+shell:<token-prefix>            shell command prefix (whitespace-tokenized)
+```
+
+Allow-list is default-deny; everything not listed is implicitly forbidden. Use `disallowedTools` only when you need a narrow carve-out from a broad allow (e.g. allow `shell:gh` but block `shell:gh pr merge`). See `src/strategies/_shared/tool-presets.ts` for the canonical sets.
 
 ## Strategy invariants
 
