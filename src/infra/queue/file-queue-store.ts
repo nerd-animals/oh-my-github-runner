@@ -296,20 +296,6 @@ export class FileQueueStore implements QueueStore {
     try {
       const raw = await readFile(this.taskPath(status, taskId), "utf8");
       const record = JSON.parse(raw) as TaskRecord;
-      // Legacy task files (pre-#60) wrote sticky as a top-level
-      // `stickyComment` field. Promote it into `notifications.sticky`
-      // on read so callers see the new shape uniformly. The next
-      // status transition rewrites the file with the new shape.
-      if (
-        record.stickyComment !== undefined &&
-        record.notifications?.sticky === undefined
-      ) {
-        record.notifications = {
-          ...record.notifications,
-          sticky: record.stickyComment,
-        };
-      }
-      delete record.stickyComment;
       return record;
     } catch (error) {
       if (isMissingFile(error)) {
