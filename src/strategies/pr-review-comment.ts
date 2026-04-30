@@ -1,5 +1,5 @@
 import { header, mapAiFailure, ok } from "./_shared/helpers.js";
-import { OBSERVE_ALLOWED, OBSERVE_DISALLOWED } from "./_shared/tool-presets.js";
+import { OBSERVE_ALLOWED } from "./_shared/tool-presets.js";
 import type { Strategy } from "./types.js";
 
 const TIMEOUT_MS = 1800 * 1000;
@@ -35,7 +35,6 @@ export const prReviewCommentStrategy: Strategy = {
         { kind: "user", text: task.additionalInstructions ?? "" },
       ],
       allowedTools: OBSERVE_ALLOWED,
-      disallowedTools: OBSERVE_DISALLOWED,
       timeoutMs: TIMEOUT_MS,
     });
 

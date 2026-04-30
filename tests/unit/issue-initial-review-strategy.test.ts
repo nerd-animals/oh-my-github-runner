@@ -3,10 +3,7 @@ import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { issueInitialReviewStrategy } from "../../src/strategies/issue-initial-review.js";
-import {
-  COLLECT_ONLY_ALLOWED,
-  COLLECT_ONLY_DISALLOWED,
-} from "../../src/strategies/_shared/tool-presets.js";
+import { COLLECT_ONLY_ALLOWED } from "../../src/strategies/_shared/tool-presets.js";
 import type {
   AiRunOptions,
   AiRunResult,
@@ -130,7 +127,7 @@ describe("issueInitialReviewStrategy (multi-persona collect-only)", () => {
 
     for (const call of aiCalls) {
       assert.equal(call.allowedTools, COLLECT_ONLY_ALLOWED);
-      assert.equal(call.disallowedTools, COLLECT_ONLY_DISALLOWED);
+      assert.equal(call.disallowedTools, undefined);
       const collectOnlyFragment = call.prompt.find(
         (frag) =>
           frag.kind === "file" && frag.path === "modes/collect-only",

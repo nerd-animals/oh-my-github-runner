@@ -1,5 +1,4 @@
 import type { GitHubSourceContext } from "../domain/github.js";
-import type { CleanupToolArtifacts } from "../domain/ports/tool-artifact-cleaner.js";
 import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
@@ -21,7 +20,6 @@ export interface ToolkitFactoryOptions {
   toolRegistry: Pick<ToolRegistry, "resolve">;
   logStore: LogStore;
   promptRenderer: PromptRenderer;
-  cleanupToolArtifacts: CleanupToolArtifacts;
 }
 
 export class ToolkitFactory {
@@ -120,7 +118,7 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupToolArtifacts(handle.workspacePath);
+          await this.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
@@ -149,7 +147,7 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupToolArtifacts(handle.workspacePath);
+          await this.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
@@ -174,11 +172,25 @@ class ToolkitImpl implements Toolkit {
         installationToken,
         cleanup: async () => {
           await this.options.workspaceManager.cleanupWorkspace(handle);
-          await this.options.cleanupToolArtifacts(handle.workspacePath);
+          await this.cleanupToolArtifacts(handle.workspacePath);
         },
       });
     },
   };
+
+  private async cleanupToolArtifacts(workspacePath: string): Promise<void> {
+    try {
+      await this.options.toolRegistry
+        .resolve(this.task.tool)
+        .cleanupArtifacts(workspacePath);
+    } catch (error) {
+      console.warn(
+        `[toolkit] cleanupArtifacts failed for task=${this.task.taskId} tool=${this.task.tool}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
 
   readonly ai = {
     run: async (opts: AiRunOptions): Promise<AiRunResult> => {
