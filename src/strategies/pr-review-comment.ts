@@ -22,7 +22,6 @@ export const prReviewCommentStrategy: Strategy = {
 
     signal.throwIfAborted();
     const result = await tk.ai.run({
-      tool: task.tool,
       prompt: [
         { kind: "file", path: "_common/work-rules" },
         { kind: "file", path: "personas/architecture" },
