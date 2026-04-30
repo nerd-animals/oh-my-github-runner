@@ -33,7 +33,6 @@ export const issueInitialReviewStrategy: Strategy = {
     for (const persona of PERSONAS) {
       signal.throwIfAborted();
       const result = await tk.ai.run({
-        tool: task.tool,
         prompt: [
           { kind: "file", path: "_common/work-rules" },
           { kind: "file", path: `personas/${persona.id}` },

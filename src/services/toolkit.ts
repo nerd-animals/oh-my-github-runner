@@ -201,7 +201,7 @@ class ToolkitImpl implements Toolkit {
         this.cachedContext,
       );
       const result = await this.options.toolRegistry
-        .resolve(opts.tool)
+        .resolve(this.task.tool)
         .run({
           task: this.task,
           workspacePath: this.active.path,

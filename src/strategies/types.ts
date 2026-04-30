@@ -17,7 +17,6 @@ export type PromptFragment =
   | { kind: "user"; text: string };
 
 export interface AiRunOptions {
-  tool: string;
   prompt: readonly PromptFragment[];
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
