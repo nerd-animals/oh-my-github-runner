@@ -50,7 +50,6 @@ export type DispatchAction =
   | {
       kind: "enqueue";
       instructionId: string;
-      tool: string;
       repo: RepoRef;
       source: SourceRef;
       additionalInstructions?: string;
@@ -67,8 +66,6 @@ export type DispatchAction =
     };
 
 export interface EventDispatcherDependencies {
-  /** Resolves the tool a given strategy declares in its policies. */
-  resolveStrategyTool: (instructionId: string) => string;
   botUserId: number;
   allowedSenderIds: ReadonlySet<number>;
   noAiLabel?: string;
@@ -138,7 +135,6 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -167,7 +163,6 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "issue", number: event.issue.number },
       requestedBy: event.sender.login,
@@ -221,7 +216,6 @@ export class EventDispatcher {
     return {
       kind: "enqueue",
       instructionId,
-      tool: this.deps.resolveStrategyTool(instructionId),
       repo: event.repo,
       source: { kind: "pull_request", number: event.pr.number },
       requestedBy: event.sender.login,

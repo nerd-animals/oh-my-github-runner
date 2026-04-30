@@ -188,12 +188,15 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     promptsDir: path.join(runnerRoot, "definitions", "prompts"),
   });
   const promptRenderer = new PromptRenderer({ fragments: promptFragments });
+  const toolsForTask = (task: TaskRecord): readonly string[] =>
+    Object.keys(getStrategy(task.instructionId).policies.uses);
   const toolkitFactory = new ToolkitFactory({
     githubClient,
     workspaceManager,
     toolRegistry,
     logStore,
     promptRenderer,
+    toolsForTask,
   });
 
   const daemon = new RunnerDaemon({
@@ -205,6 +208,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
         toolkitFactory.create(task, signal),
         signal,
       ),
+    toolsForTask,
     logStore,
     pollIntervalMs,
     rateLimit: {
@@ -341,8 +345,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const allowedSenderIds = parseSenderIdAllowlist("ALLOWED_SENDER_IDS");
 
   const dispatcher = new EventDispatcher({
-    resolveStrategyTool: (instructionId) =>
-      getStrategy(instructionId).policies.tool,
     botUserId,
     allowedSenderIds,
   });

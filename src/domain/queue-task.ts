@@ -11,7 +11,6 @@ export interface QueueTaskInput {
   repo: RepoRef;
   source: SourceRef;
   instructionId: string;
-  tool: string;
   additionalInstructions?: string;
   requestedBy: string;
   priority?: TaskPriority;

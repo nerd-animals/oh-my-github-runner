@@ -50,7 +50,6 @@ function buildHarness(options: HarnessOptions = {}): Harness {
   let nextCommentId = 1000;
 
   const dispatcher = new EventDispatcher({
-    resolveStrategyTool: () => "claude",
     botUserId,
     allowedSenderIds: new Set([1, 100, 200]),
   });
@@ -67,7 +66,6 @@ function buildHarness(options: HarnessOptions = {}): Harness {
           repo: input.repo,
           source: input.source,
           instructionId: input.instructionId,
-          tool: input.tool,
           status: "queued" as const,
           priority: "normal" as const,
           requestedBy: input.requestedBy,
@@ -222,7 +220,6 @@ describe("WebhookHandler", () => {
 
     assert.equal(harness.enqueued.length, 1);
     assert.equal(harness.enqueued[0]?.instructionId, "issue-initial-review");
-    assert.equal(harness.enqueued[0]?.tool, "claude");
   });
 
   test("posts a rejection comment for fork PR /omgr implement", async () => {
@@ -406,7 +403,6 @@ describe("WebhookHandler", () => {
   test("enqueue still proceeds when reaction API throws", async () => {
     const enqueued: QueueTaskInput[] = [];
     const dispatcher = new EventDispatcher({
-      resolveStrategyTool: () => "claude",
       botUserId,
       allowedSenderIds: new Set([100]),
     });
@@ -422,7 +418,6 @@ describe("WebhookHandler", () => {
             repo: input.repo,
             source: input.source,
             instructionId: input.instructionId,
-            tool: input.tool,
             status: "queued" as const,
             priority: "normal" as const,
             requestedBy: input.requestedBy,

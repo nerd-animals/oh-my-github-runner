@@ -4,6 +4,12 @@ export interface SelectNextTasksInput {
   tasks: TaskRecord[];
   maxConcurrency: number;
   pausedTools?: ReadonlySet<string>;
+  /**
+   * Maps a task's instructionId to the set of tool names its strategy
+   * may use. The scheduler defers any queued task whose set intersects
+   * with `pausedTools`.
+   */
+  toolsForTask: (task: TaskRecord) => readonly string[];
 }
 
 // Pure FIFO scheduling against the concurrency budget, skipping any
@@ -28,7 +34,8 @@ export function selectNextTasks(input: SelectNextTasksInput): string[] {
     if (selected.length >= slots) {
       break;
     }
-    if (pausedTools.has(task.tool)) {
+    const taskTools = input.toolsForTask(task);
+    if (taskTools.some((t) => pausedTools.has(t))) {
       continue;
     }
     selected.push(task.taskId);

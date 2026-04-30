@@ -7,20 +7,20 @@ function createTask(
   taskId: string,
   status: TaskRecord["status"],
   repoName: string,
-  tool: string = "claude",
 ): TaskRecord {
   return {
     taskId,
     repo: { owner: "octo", name: repoName },
     source: { kind: "issue", number: Number(taskId.replace(/\D/g, "")) || 1 },
     instructionId: "issue-comment-reply",
-    tool,
     status,
     priority: "normal",
     requestedBy: "test",
     createdAt: "2026-04-24T00:00:00.000Z",
   };
 }
+
+const claudeOnly = (): readonly string[] => ["claude"];
 
 describe("SchedulerService", () => {
   test("schedules same-repo work concurrently - branch suffix removes the collision", () => {
@@ -31,6 +31,7 @@ describe("SchedulerService", () => {
         createTask("task_running", "running", "repo-a"),
         createTask("task_queued", "queued", "repo-a"),
       ],
+      toolsForTask: claudeOnly,
     });
 
     assert.deepEqual(selected, ["task_queued"]);
@@ -45,9 +46,26 @@ describe("SchedulerService", () => {
         createTask("task_active", "queued", "repo-b"),
       ],
       pausedTools: new Set(["claude"]),
+      toolsForTask: claudeOnly,
     });
 
     assert.deepEqual(selected, []);
+  });
+
+  test("skips a task if any of its declared tools is paused (any-paused = defer)", () => {
+    const scheduler = new SchedulerService({ maxConcurrency: 2 });
+
+    const selected = scheduler.selectNextTasks({
+      tasks: [
+        createTask("task_multi", "queued", "repo-a"),
+        createTask("task_solo", "queued", "repo-b"),
+      ],
+      pausedTools: new Set(["gemini"]),
+      toolsForTask: (task) =>
+        task.taskId === "task_multi" ? ["claude", "gemini"] : ["claude"],
+    });
+
+    assert.deepEqual(selected, ["task_solo"]);
   });
 
   test("fills free slots with executable queued work in created order", () => {
@@ -59,6 +77,7 @@ describe("SchedulerService", () => {
         createTask("task_2", "queued", "repo-a"),
         createTask("task_3", "queued", "repo-b"),
       ],
+      toolsForTask: claudeOnly,
     });
 
     assert.deepEqual(selected, ["task_1", "task_2"]);
@@ -73,6 +92,7 @@ describe("SchedulerService", () => {
         createTask("task_r2", "running", "repo-b"),
         createTask("task_q", "queued", "repo-c"),
       ],
+      toolsForTask: claudeOnly,
     });
 
     assert.deepEqual(selected, []);

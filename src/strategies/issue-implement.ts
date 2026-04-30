@@ -5,7 +5,7 @@ import type { Strategy } from "./types.js";
 const TIMEOUT_MS = 3600 * 1000;
 
 export const issueImplementStrategy: Strategy = {
-  policies: { tool: "claude", supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
+  policies: { uses: { claude: true }, supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
   run: async (task, tk, signal) => {
     signal.throwIfAborted();
     const ctx = await tk.github.fetchContext(task);
