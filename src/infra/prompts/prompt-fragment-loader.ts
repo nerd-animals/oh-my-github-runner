@@ -12,7 +12,7 @@ const FRAGMENT_SUBDIRS = ["_common", "personas", "modes", "guidance"] as const;
 // Loads every md file under definitions/prompts/{_common,personas,modes,guidance}
 // into a flat map keyed by "<subdir>/<basename-without-ext>", e.g.
 //   _common/work-rules.md         -> "_common/work-rules"
-//   personas/architecture.md      -> "personas/architecture"
+//   personas/architect.md         -> "personas/architect"
 //   modes/observe.md              -> "modes/observe"
 //   guidance/issue-implement.md   -> "guidance/issue-implement"
 // Strategies reference fragments via these keys; the cache is loaded once

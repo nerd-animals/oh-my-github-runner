@@ -24,7 +24,7 @@ export const prReviewCommentStrategy: Strategy = {
     const result = await tk.ai.run({
       prompt: [
         { kind: "file", path: "_common/work-rules" },
-        { kind: "file", path: "personas/architecture" },
+        { kind: "file", path: "personas/architect" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/observe" },
         { kind: "context", key: "pr-body" },

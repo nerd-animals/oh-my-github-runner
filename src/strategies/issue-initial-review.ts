@@ -4,11 +4,10 @@ import type { ExecuteResult, Strategy } from "./types.js";
 import type { TaskRecord } from "../domain/task.js";
 
 const PERSONAS = [
-  { id: "architecture", label: "Architecture" },
-  { id: "implementation", label: "Implementation" },
-  { id: "infra", label: "Infra" },
-  { id: "product", label: "Product" },
-  { id: "testing", label: "Testing" },
+  { id: "architect", label: "Architect" },
+  { id: "test", label: "Test" },
+  { id: "ops", label: "Ops" },
+  { id: "maintenance", label: "Maintenance" },
 ] as const;
 
 const PER_PERSONA_TIMEOUT_MS = 1800 * 1000;
