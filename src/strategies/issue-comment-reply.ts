@@ -1,11 +1,11 @@
 import { header, mapAiFailure, ok } from "./_shared/helpers.js";
-import { OBSERVE_ALLOWED } from "./_shared/tool-presets.js";
+import { OBSERVE_ALLOWED, REPLY_DISALLOWED } from "./_shared/tool-presets.js";
 import type { Strategy } from "./types.js";
 
 const TIMEOUT_MS = 1800 * 1000;
 
 export const issueCommentReplyStrategy: Strategy = {
-  policies: { uses: { claude: true }, supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
+  policies: { uses: { codex: true }, supersedeOnSameSource: true, timeoutMs: TIMEOUT_MS },
   run: async (task, tk, signal) => {
     signal.throwIfAborted();
     await using ws = await tk.workspace.prepareObserve(task);
@@ -18,7 +18,7 @@ export const issueCommentReplyStrategy: Strategy = {
     const result = await tk.ai.run({
       prompt: [
         { kind: "file", path: "_common/work-rules" },
-        { kind: "file", path: "personas/architect" },
+        { kind: "file", path: "personas/reply" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/observe" },
         { kind: "context", key: "issue-body" },
@@ -27,6 +27,7 @@ export const issueCommentReplyStrategy: Strategy = {
         { kind: "user", text: task.additionalInstructions ?? "" },
       ],
       allowedTools: OBSERVE_ALLOWED,
+      disallowedTools: REPLY_DISALLOWED,
       timeoutMs: TIMEOUT_MS,
     });
 
