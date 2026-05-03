@@ -48,7 +48,7 @@ export class CodexToolRunner implements ToolRunner {
     const args = [
       "exec",
       "--sandbox",
-      pickSandbox(input.allowedTools),
+      "workspace-write",
       "--ephemeral",
       "--skip-git-repo-check",
       "-C",
@@ -97,24 +97,6 @@ export class CodexToolRunner implements ToolRunner {
       blocks.join("\n\n") + "\n",
     );
   }
-}
-
-// Codex's permission model is two layers:
-//   - sandbox mode (FS+net coarse control) via --sandbox flag
-//   - prefix rules (per-shell-command fence) via .codex/rules/*.rules
-// Built-in capabilities like read/edit/write don't have shell rules; they
-// collapse into the sandbox mode. `edit` or `write` in the allow list
-// implies the agent intends to mutate, so we widen the sandbox.
-export function pickSandbox(
-  allowed: readonly string[] | undefined,
-): "read-only" | "workspace-write" {
-  const list = allowed ?? [];
-  for (const item of list) {
-    if (item === "edit" || item === "write") {
-      return "workspace-write";
-    }
-  }
-  return "read-only";
 }
 
 // `shell:<token-prefix>` → `prefix_rule(pattern=[...], decision="...")`.
