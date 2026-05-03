@@ -113,6 +113,16 @@ class ToolkitImpl implements Toolkit {
         body,
       );
     },
+
+    createIssue: (
+      repo: RepoRef,
+      title: string,
+      body: string,
+    ): Promise<{ number: number; url: string }> =>
+      this.options.githubClient.createIssue(repo, title, body),
+
+    closeIssue: (repo: RepoRef, issueNumber: number): Promise<void> =>
+      this.options.githubClient.closeIssue(repo, issueNumber),
   };
 
   readonly workspace = {
@@ -259,6 +269,9 @@ class ToolkitImpl implements Toolkit {
           ? { disallowedTools: opts.disallowedTools }
           : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.outputSchema !== undefined
+          ? { outputSchema: opts.outputSchema }
+          : {}),
         ...(this.signal !== undefined ? { signal: this.signal } : {}),
       });
       if (result.kind === "succeeded") {

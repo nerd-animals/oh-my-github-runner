@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 import type { ToolRunner } from "../../domain/ports/tool-runner.js";
@@ -8,6 +8,7 @@ import { buildBaseEnv, classifyResult } from "./_shared.js";
 export interface CodexFs {
   mkdir: (target: string, options: { recursive: true }) => Promise<unknown>;
   writeFile: (target: string, contents: string) => Promise<void>;
+  readFile: (target: string) => Promise<string>;
   rm: (
     target: string,
     options: { recursive: true; force: true },
@@ -38,12 +39,14 @@ export class CodexToolRunner implements ToolRunner {
     this.fs = options.fs ?? {
       mkdir: (target, opts) => mkdir(target, opts),
       writeFile,
+      readFile: (target) => readFile(target, "utf8"),
       rm,
     };
   }
 
   async run(input: ToolRunInput): Promise<ToolRunResult> {
     await this.writeRulesFile(input);
+    const lastMessagePath = await this.prepareOutputSchema(input);
 
     const args = [
       "exec",
@@ -53,9 +56,17 @@ export class CodexToolRunner implements ToolRunner {
       "--skip-git-repo-check",
       "-C",
       input.workspacePath,
-      "--",
-      input.prompt,
     ];
+    if (lastMessagePath !== null) {
+      const schemaPath = path.join(input.workspacePath, ".codex", "output.schema.json");
+      args.push(
+        "--output-schema",
+        schemaPath,
+        "-o",
+        lastMessagePath,
+      );
+    }
+    args.push("--", input.prompt);
 
     const raw = await this.options.processRunner.run({
       command: this.options.command,
@@ -66,7 +77,43 @@ export class CodexToolRunner implements ToolRunner {
       env: buildBaseEnv(input),
     });
 
+    // When outputSchema was used and the run succeeded, the schema-conformant
+    // JSON is written to `last-message.txt` rather than coming back through
+    // stdout. Read that file and surface its contents as the succeeded stdout
+    // so callers always parse the structured payload from a single place.
+    if (lastMessagePath !== null && raw.exitCode === 0) {
+      try {
+        const stdout = await this.fs.readFile(lastMessagePath);
+        return { kind: "succeeded", stdout };
+      } catch {
+        // File missing despite exit 0 — fall through to raw result so the
+        // caller sees the original stdout/stderr instead of a silent empty
+        // success.
+      }
+    }
+
     return classifyResult(raw, "codex", RATE_LIMIT_PATTERNS);
+  }
+
+  // Materialize the JSON Schema in the workspace's `.codex/` dir and
+  // return the absolute path the runner should pass to `codex exec -o`,
+  // or `null` when no schema was requested. Returning the path keeps the
+  // arg-construction site below free of fs concerns.
+  private async prepareOutputSchema(
+    input: ToolRunInput,
+  ): Promise<string | null> {
+    if (input.outputSchema === undefined) {
+      return null;
+    }
+    const codexDir = path.join(input.workspacePath, ".codex");
+    const schemaPath = path.join(codexDir, "output.schema.json");
+    const lastMessagePath = path.join(codexDir, "last-message.txt");
+    await this.fs.mkdir(codexDir, { recursive: true });
+    await this.fs.writeFile(
+      schemaPath,
+      JSON.stringify(input.outputSchema, null, 2) + "\n",
+    );
+    return lastMessagePath;
   }
 
   async cleanupArtifacts(workspacePath: string): Promise<void> {

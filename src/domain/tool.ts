@@ -9,6 +9,14 @@ export interface ToolRunInput {
   disallowedTools?: readonly string[];
   timeoutMs?: number;
   /**
+   * Optional JSON Schema describing the structured final output the
+   * model must produce. Runners that natively support structured output
+   * (codex) translate this into their CLI flags and return the
+   * schema-conformant JSON in `succeeded.stdout`. Runners that do not
+   * support it MUST throw rather than silently ignore the option.
+   */
+  outputSchema?: object;
+  /**
    * If aborted, the runner should kill its child process (SIGTERM with a
    * brief grace period before SIGKILL) and return a failed result.
    */

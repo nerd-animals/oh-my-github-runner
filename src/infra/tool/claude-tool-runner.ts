@@ -43,6 +43,15 @@ export class ClaudeToolRunner implements ToolRunner {
   }
 
   async run(input: ToolRunInput): Promise<ToolRunResult> {
+    if (input.outputSchema !== undefined) {
+      // Native --json-schema support is feasible but not yet implemented.
+      // Strategies that need structured output should route through codex
+      // until this lands; throwing surfaces the misconfiguration instead
+      // of silently dropping the contract.
+      throw new Error(
+        "ClaudeToolRunner: outputSchema is not yet supported (route this call to codex)",
+      );
+    }
     const args = ["-p", ...this.buildPermissionArgs(input)];
 
     const raw = await this.options.processRunner.run({

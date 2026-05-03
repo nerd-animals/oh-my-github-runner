@@ -80,6 +80,11 @@ function makeToolkit(options: {
       postPrComment: async (_repo, prNumber, body) => {
         postedPrComments.push({ prNumber, body });
       },
+      createIssue: async () => ({
+        number: 501,
+        url: "https://github.com/octo/repo/issues/501",
+      }),
+      closeIssue: async () => {},
     },
     workspace: {
       prepareObserve: async () => observeWs,

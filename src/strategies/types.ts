@@ -29,6 +29,17 @@ export interface AiRunOptions {
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
   timeoutMs?: number;
+  /**
+   * JSON Schema (OpenAI structured-output subset: `anyOf` is allowed but
+   * `oneOf` is rejected; every property must appear in `required`; every
+   * object needs `additionalProperties: false`) describing the model's
+   * final output. When set, the runner enforces the schema natively if
+   * it can (codex via `--output-schema`) and the resulting stdout is the
+   * schema-conformant JSON string. Runners without native support throw,
+   * so strategies should only set this when routing to a tool that
+   * supports it.
+   */
+  outputSchema?: object;
 }
 
 export type AiRunResult =
@@ -60,6 +71,12 @@ export interface Toolkit {
       prNumber: number,
       body: string,
     ): Promise<void>;
+    createIssue(
+      repo: RepoRef,
+      title: string,
+      body: string,
+    ): Promise<{ number: number; url: string }>;
+    closeIssue(repo: RepoRef, issueNumber: number): Promise<void>;
   };
   workspace: {
     prepareObserve(

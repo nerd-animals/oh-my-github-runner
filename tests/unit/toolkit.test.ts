@@ -71,6 +71,11 @@ function buildToolkit(opts: {
     postPullRequestComment: async () => {
       throw new Error("not used");
     },
+    createIssue: async () => ({
+      number: 501,
+      url: "https://github.com/octo/repo/issues/501",
+    }),
+    closeIssue: async () => {},
   } as unknown as GitHubClient;
   const workspaceManager = {
     prepareObserveWorkspace: async () => ({
@@ -227,6 +232,31 @@ describe("toolkit.ai.run — prompt render wiring", () => {
 
     assert.equal(renderCalls.length, 1);
     assert.equal(renderCalls[0]?.workspacePath, "/tmp/ws");
+  });
+
+  test("forwards outputSchema to the selected runner", async () => {
+    const { factory, calls } = buildToolkit({ declared: ["codex"] });
+    const tk = factory.create(task);
+
+    await using ws = await tk.workspace.prepareObserve(task);
+    void ws;
+    await tk.github.fetchContext(task);
+
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["replyComment"],
+      properties: {
+        replyComment: { type: "string" },
+      },
+    };
+
+    await tk.ai.run({
+      prompt: [{ kind: "literal", text: "hi" }],
+      outputSchema: schema,
+    });
+
+    assert.deepEqual(calls[0]?.input.outputSchema, schema);
   });
 });
 

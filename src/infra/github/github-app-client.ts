@@ -282,6 +282,33 @@ export class GitHubAppClient implements GitHubClient {
     return this.postIssueComment(repo, pullRequestNumber, body);
   }
 
+  async createIssue(
+    repo: RepoRef,
+    title: string,
+    body: string,
+  ): Promise<{ number: number; url: string }> {
+    const response = await this.installationRequest<{
+      number: number;
+      html_url: string;
+    }>(
+      repo,
+      "POST",
+      `/repos/${repo.owner}/${repo.name}/issues`,
+      { title, body },
+    );
+
+    return { number: response.number, url: response.html_url };
+  }
+
+  async closeIssue(repo: RepoRef, issueNumber: number): Promise<void> {
+    await this.installationRequest(
+      repo,
+      "PATCH",
+      `/repos/${repo.owner}/${repo.name}/issues/${issueNumber}`,
+      { state: "closed" },
+    );
+  }
+
   async updateIssueComment(
     repo: RepoRef,
     commentId: number,
