@@ -21,6 +21,7 @@ export const issueCommentReplyStrategy: Strategy = {
         { kind: "file", path: "personas/reply" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/observe" },
+        { kind: "file", path: "_common/omgr-docs" },
         { kind: "context", key: "issue-body" },
         { kind: "context", key: "issue-comments" },
         { kind: "context", key: "linked-refs" },

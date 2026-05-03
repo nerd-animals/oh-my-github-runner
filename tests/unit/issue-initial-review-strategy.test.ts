@@ -222,6 +222,55 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
     assert.equal(publisherCall.tool, "gemini");
   });
 
+  test("each persona prompt includes its mapped .omgr doc; publisher has none", async () => {
+    const { tk, aiCalls } = makeToolkit({ resultsByPersona: ALL_SUCCEEDED });
+
+    await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    const expectedByPersona: Record<string, string> = {
+      architect: ".omgr/architecture.md",
+      test: ".omgr/testing.md",
+      ops: ".omgr/deployment.md",
+      maintenance: ".omgr/architecture.md",
+    };
+
+    for (const call of aiCalls) {
+      const personaFrag = call.prompt.find(
+        (f) => f.kind === "file" && f.path.startsWith("personas/"),
+      );
+      assert.ok(personaFrag && personaFrag.kind === "file");
+      const personaId = personaFrag.path.replace("personas/", "");
+
+      const omgrDocs = call.prompt.filter((f) => f.kind === "omgr-doc");
+
+      if (personaId === "publisher") {
+        assert.equal(
+          omgrDocs.length,
+          0,
+          "publisher prompt must not include any omgr-doc fragment",
+        );
+        continue;
+      }
+
+      const expected = expectedByPersona[personaId];
+      assert.ok(expected, `unexpected persona '${personaId}'`);
+      assert.equal(
+        omgrDocs.length,
+        1,
+        `persona '${personaId}' should have exactly one omgr-doc fragment`,
+      );
+      assert.equal(
+        omgrDocs[0]?.kind === "omgr-doc" ? omgrDocs[0].path : null,
+        expected,
+        `persona '${personaId}' should map to ${expected}`,
+      );
+    }
+  });
+
   test("publisher rate_limited → fallback comment with appendix only", async () => {
     const { tk, aiCalls, postedIssueComments } = makeToolkit({
       resultsByPersona: ALL_SUCCEEDED,

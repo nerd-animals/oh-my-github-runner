@@ -35,6 +35,7 @@ export const issueInitialReviewStrategy: Strategy = {
             { kind: "file", path: `personas/${persona.id}` },
             { kind: "file", path: "modes/collect-only" },
             { kind: "literal", text: header(task, ctx) },
+            { kind: "omgr-doc", path: persona.omgrDoc },
             { kind: "context", key: "issue-body" },
             { kind: "context", key: "linked-refs" },
             { kind: "user", text: task.additionalInstructions ?? "" },

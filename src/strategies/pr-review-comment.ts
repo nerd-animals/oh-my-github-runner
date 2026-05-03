@@ -27,6 +27,7 @@ export const prReviewCommentStrategy: Strategy = {
         { kind: "file", path: "personas/architect" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/observe" },
+        { kind: "omgr-doc", path: ".omgr/architecture.md" },
         { kind: "context", key: "pr-body" },
         { kind: "context", key: "pr-comments" },
         { kind: "context", key: "pr-diff" },

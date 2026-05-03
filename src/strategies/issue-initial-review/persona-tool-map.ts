@@ -1,8 +1,8 @@
 export const PERSONAS = [
-  { id: "architect", label: "Architect" },
-  { id: "test", label: "Test" },
-  { id: "ops", label: "Ops" },
-  { id: "maintenance", label: "Maintenance" },
+  { id: "architect", label: "Architect", omgrDoc: ".omgr/architecture.md" },
+  { id: "test", label: "Test", omgrDoc: ".omgr/testing.md" },
+  { id: "ops", label: "Ops", omgrDoc: ".omgr/deployment.md" },
+  { id: "maintenance", label: "Maintenance", omgrDoc: ".omgr/architecture.md" },
 ] as const;
 
 export type PersonaId = (typeof PERSONAS)[number]["id"];

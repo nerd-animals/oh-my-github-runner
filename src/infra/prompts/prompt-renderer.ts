@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type {
   GitHubComment,
   GitHubSourceContext,
@@ -21,20 +23,22 @@ export class PromptRenderer {
     this.fragments = options.fragments;
   }
 
-  render(
+  async render(
     fragments: readonly PromptFragment[],
     context: GitHubSourceContext,
-  ): string {
-    return fragments
-      .map((fragment) => this.renderOne(fragment, context))
-      .filter((piece) => piece.length > 0)
-      .join("\n\n");
+    workspacePath: string,
+  ): Promise<string> {
+    const pieces = await Promise.all(
+      fragments.map((fragment) => this.renderOne(fragment, context, workspacePath)),
+    );
+    return pieces.filter((piece) => piece.length > 0).join("\n\n");
   }
 
-  private renderOne(
+  private async renderOne(
     fragment: PromptFragment,
     context: GitHubSourceContext,
-  ): string {
+    workspacePath: string,
+  ): Promise<string> {
     if (fragment.kind === "literal") {
       return fragment.text;
     }
@@ -50,7 +54,25 @@ export class PromptRenderer {
       }
       return content;
     }
+    if (fragment.kind === "omgr-doc") {
+      return readOmgrDoc(workspacePath, fragment.path);
+    }
     return renderContextBlock(fragment.key, context);
+  }
+}
+
+async function readOmgrDoc(
+  workspacePath: string,
+  relPath: string,
+): Promise<string> {
+  try {
+    const content = await readFile(path.join(workspacePath, relPath), "utf8");
+    return content.trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return "";
+    }
+    throw error;
   }
 }
 

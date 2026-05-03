@@ -43,6 +43,12 @@ Allow-list is default-deny; everything not listed is implicitly forbidden. Use `
 - Live under `definitions/prompts/{_common,personas,modes,guidance}/<name>.md`.
 - Strategies reference them by string path (`{ kind: "file", path: "personas/architecture" }`). Mistype = runtime error.
 
+## Repository docs (`.omgr/`)
+
+- The target repo may keep agent-facing notes under a top-level `.omgr/` directory. Standard files: `overview.md`, `architecture.md`, `testing.md`, `deployment.md`. Other files are allowed.
+- Strategies inject these into a persona's prompt with `{ kind: "omgr-doc", path: ".omgr/<name>.md" }`. The renderer reads from the workspace clone; if the file is absent, the fragment renders as empty (silent skip). Per-strategy mapping (which doc each persona gets) lives in the strategy file.
+- For strategies that should let the persona discover docs on its own (e.g. `issue-comment-reply`), inject the static guide `{ kind: "file", path: "_common/omgr-docs" }` instead — it lists the standard files and lets the persona `read` them as needed.
+
 ## `var/` layout (runtime state, written by daemon)
 
 - `queue/`        — task records (one file per task; directory encodes status)

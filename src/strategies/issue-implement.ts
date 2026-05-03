@@ -22,6 +22,8 @@ export const issueImplementStrategy: Strategy = {
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/mutate" },
         { kind: "file", path: "guidance/issue-implement" },
+        { kind: "omgr-doc", path: ".omgr/architecture.md" },
+        { kind: "omgr-doc", path: ".omgr/testing.md" },
         { kind: "context", key: "issue-body" },
         { kind: "context", key: "issue-comments" },
         { kind: "context", key: "linked-refs" },
