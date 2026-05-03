@@ -295,6 +295,31 @@ describe("CodexToolRunner.run", () => {
     }
   });
 
+  test("with outputSchema: returns failed when last-message file is empty", async () => {
+    const codexDir = path.join("/tmp/ws", ".codex");
+    const lastMsgFile = path.join(codexDir, "last-message.txt");
+    const { fs } = makeFs({ readFiles: { [lastMsgFile]: "   \n" } });
+    const { processRunner } = makeProcessRunner({
+      exitCode: 0,
+      stdout: "codex verbose log",
+      stderr: "",
+    });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "x",
+      outputSchema: { type: "object" },
+    });
+
+    assert.equal(result.kind, "failed");
+    if (result.kind !== "failed") return;
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "codex verbose log");
+    assert.match(result.stderr, /empty last-message\.txt/);
+  });
+
   test("without outputSchema: schema file is not written and --output-schema is absent", async () => {
     const { fs, calls: fsCalls } = makeFs();
     const { processRunner, calls: procCalls } = makeProcessRunner();

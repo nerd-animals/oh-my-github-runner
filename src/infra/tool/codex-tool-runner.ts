@@ -84,6 +84,21 @@ export class CodexToolRunner implements ToolRunner {
     if (lastMessagePath !== null && raw.exitCode === 0) {
       try {
         const stdout = await this.fs.readFile(lastMessagePath);
+        if (stdout.trim().length === 0) {
+          // File present but empty: codex accepted the run but emitted no
+          // schema-conformant message. Surface as failed with raw stdout/
+          // stderr so the receipt shows codex's actual logs instead of an
+          // opaque "Unexpected end of JSON input" downstream.
+          return {
+            kind: "failed",
+            exitCode: 0,
+            stdout: raw.stdout,
+            stderr:
+              raw.stderr.length > 0
+                ? raw.stderr
+                : "codex wrote an empty last-message.txt despite outputSchema",
+          };
+        }
         return { kind: "succeeded", stdout };
       } catch {
         // File missing despite exit 0 — fall through to raw result so the

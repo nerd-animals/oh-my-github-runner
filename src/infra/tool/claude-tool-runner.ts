@@ -43,16 +43,16 @@ export class ClaudeToolRunner implements ToolRunner {
   }
 
   async run(input: ToolRunInput): Promise<ToolRunResult> {
-    if (input.outputSchema !== undefined) {
-      // Native --json-schema support is feasible but not yet implemented.
-      // Strategies that need structured output should route through codex
-      // until this lands; throwing surfaces the misconfiguration instead
-      // of silently dropping the contract.
-      throw new Error(
-        "ClaudeToolRunner: outputSchema is not yet supported (route this call to codex)",
-      );
-    }
     const args = ["-p", ...this.buildPermissionArgs(input)];
+    if (input.outputSchema !== undefined) {
+      // Claude Code's --json-schema validates the model's response against
+      // the supplied JSON Schema and emits the schema-conformant JSON as
+      // plain stdout. The schema travels inline as a single argv string;
+      // codex's equivalent uses a sidecar file because its CLI takes a
+      // path. Either runner ends up handing identical stdout shape to the
+      // caller, so strategies parse it from one place.
+      args.push("--json-schema", JSON.stringify(input.outputSchema));
+    }
 
     const raw = await this.options.processRunner.run({
       command: this.options.command,
@@ -63,6 +63,26 @@ export class ClaudeToolRunner implements ToolRunner {
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
       env: buildBaseEnv(input),
     });
+
+    if (
+      input.outputSchema !== undefined &&
+      raw.exitCode === 0 &&
+      raw.stdout.trim().length === 0
+    ) {
+      // Empty stdout despite exit 0 means claude accepted the run but
+      // produced nothing matching the schema. Surface as failed so the
+      // receipt carries raw stdout/stderr rather than tripping downstream
+      // JSON parsing on an empty success.
+      return {
+        kind: "failed",
+        exitCode: 0,
+        stdout: raw.stdout,
+        stderr:
+          raw.stderr.length > 0
+            ? raw.stderr
+            : "claude produced empty stdout despite outputSchema",
+      };
+    }
 
     return classifyResult(raw, "claude", RATE_LIMIT_PATTERNS);
   }
