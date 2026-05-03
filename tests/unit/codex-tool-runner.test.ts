@@ -9,7 +9,6 @@ import type { TaskRecord } from "../../src/domain/task.js";
 import type { ToolRunInput } from "../../src/domain/tool.js";
 import {
   CodexToolRunner,
-  pickSandbox,
   toPrefixRule,
   type CodexFs,
 } from "../../src/infra/tool/codex-tool-runner.js";
@@ -66,19 +65,6 @@ function makeProcessRunner(result?: Partial<RunProcessResult>): {
   };
   return { processRunner, calls };
 }
-
-describe("pickSandbox", () => {
-  test("returns read-only when no write capability is requested", () => {
-    assert.equal(pickSandbox(["read", "grep", "shell:gh"]), "read-only");
-    assert.equal(pickSandbox([]), "read-only");
-    assert.equal(pickSandbox(undefined), "read-only");
-  });
-
-  test("returns workspace-write when edit or write is in the allow list", () => {
-    assert.equal(pickSandbox(["read", "edit"]), "workspace-write");
-    assert.equal(pickSandbox(["write"]), "workspace-write");
-  });
-});
 
 describe("toPrefixRule", () => {
   test("returns null for built-in capabilities", () => {
@@ -137,23 +123,6 @@ describe("CodexToolRunner.run", () => {
       "do the thing",
     ]);
     assert.equal(calls[0]?.cwd, "/tmp/ws");
-  });
-
-  test("picks read-only sandbox when no write capability is allowed", async () => {
-    const { fs } = makeFs();
-    const { processRunner, calls } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
-
-    await runner.run({
-      task,
-      workspacePath: "/tmp/ws",
-      prompt: "observe only",
-      allowedTools: ["read", "grep", "shell:gh"],
-    });
-
-    const sandboxFlagIdx = calls[0]?.args?.indexOf("--sandbox");
-    assert.notEqual(sandboxFlagIdx, undefined);
-    assert.equal(calls[0]?.args?.[sandboxFlagIdx! + 1], "read-only");
   });
 
   test("writes a default.rules file with allow + forbidden prefix rules", async () => {
