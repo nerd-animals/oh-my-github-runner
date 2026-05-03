@@ -32,6 +32,8 @@ export const issueInitialReviewStrategy: Strategy = {
           tool: TOOL_MAP[persona.id],
           prompt: [
             { kind: "file", path: "_common/work-rules" },
+            { kind: "file", path: "_common/tone" },
+            { kind: "file", path: "_common/engineering-stance" },
             { kind: "file", path: `personas/${persona.id}` },
             { kind: "file", path: "modes/collect-only" },
             { kind: "literal", text: header(task, ctx) },

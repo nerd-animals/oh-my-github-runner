@@ -18,6 +18,8 @@ export const issueImplementStrategy: Strategy = {
     const result = await tk.ai.run({
       prompt: [
         { kind: "file", path: "_common/work-rules" },
+        { kind: "file", path: "_common/tone" },
+        { kind: "file", path: "_common/engineering-stance" },
         { kind: "file", path: "personas/implementation" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/mutate" },
