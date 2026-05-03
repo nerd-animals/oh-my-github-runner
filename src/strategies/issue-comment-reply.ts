@@ -13,6 +13,12 @@ import type { Strategy } from "./types.js";
 
 const TIMEOUT_MS = 1800 * 1000;
 
+// Source reply has to land on the original issue to keep the thread from
+// going silent after side effects already executed. Retry a small fixed
+// number of times before giving up so a transient GitHub API hiccup does
+// not strand the receipts in the task log alone.
+const SOURCE_REPLY_MAX_ATTEMPTS = 3;
+
 export const issueCommentReplyStrategy: Strategy = {
   policies: {
     uses: { codex: true },
@@ -120,13 +126,45 @@ export const issueCommentReplyStrategy: Strategy = {
         ? `${envelope.replyComment}\n\n${appendix}`
         : envelope.replyComment;
 
-    try {
-      await tk.github.postIssueComment(task.repo, task.source.number, finalReply);
-    } catch (error) {
+    let sourceReplyError: unknown;
+    for (let attempt = 1; attempt <= SOURCE_REPLY_MAX_ATTEMPTS; attempt++) {
+      signal.throwIfAborted();
+      try {
+        await tk.github.postIssueComment(
+          task.repo,
+          task.source.number,
+          finalReply,
+        );
+        sourceReplyError = undefined;
+        if (attempt > 1) {
+          await tk.log.write(
+            `issue-comment-reply: source reply posted on attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS}`,
+          );
+        }
+        break;
+      } catch (error) {
+        sourceReplyError = error;
+        await tk.log.write(
+          `issue-comment-reply: source reply attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS} failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (sourceReplyError !== undefined) {
+      // Side effects in `additionalActions` are already on GitHub. Persist
+      // the intended reply body (with receipts) to the task log so the
+      // owner can recover the would-have-been-posted reply manually.
+      await tk.log.write(
+        `issue-comment-reply: giving up after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts; intended reply body follows so executed side effects are not silently lost:\n${finalReply}`,
+      );
       return {
         status: "failed",
-        errorSummary: `issue-comment-reply: failed to post source reply: ${
-          error instanceof Error ? error.message : String(error)
+        errorSummary: `issue-comment-reply: failed to post source reply after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts: ${
+          sourceReplyError instanceof Error
+            ? sourceReplyError.message
+            : String(sourceReplyError)
         }`,
       };
     }

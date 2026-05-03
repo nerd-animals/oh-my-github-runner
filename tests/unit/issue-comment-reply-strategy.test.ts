@@ -53,6 +53,10 @@ function makeToolkit(options: {
   createIssueError?: Error;
   closeIssueError?: Error;
   issueCommentError?: Error;
+  // When set, the first `issueCommentFailureCount` calls to
+  // postIssueComment throw `issueCommentError`; subsequent calls succeed.
+  // Lets tests exercise the source-reply retry loop.
+  issueCommentFailureCount?: number;
   prCommentError?: Error;
 }): {
   tk: Toolkit;
@@ -61,12 +65,16 @@ function makeToolkit(options: {
   postedPrComments: PrCommentCall[];
   createdIssues: CreateIssueCall[];
   closedIssues: number[];
+  logMessages: string[];
+  issueCommentAttempts: () => number;
 } {
   const aiCalls: AiRunOptions[] = [];
   const postedIssueComments: IssueCommentCall[] = [];
   const postedPrComments: PrCommentCall[] = [];
   const createdIssues: CreateIssueCall[] = [];
   const closedIssues: number[] = [];
+  const logMessages: string[] = [];
+  let issueCommentAttempts = 0;
 
   const observeWs: DisposableWorkspace = {
     path: "/tmp/observe",
@@ -85,8 +93,17 @@ function makeToolkit(options: {
       fetchContext: async () => issueContext,
       getDefaultBranch: async () => "main",
       postIssueComment: async (_repo, issueNumber, body) => {
-        if (options.issueCommentError !== undefined) {
-          throw options.issueCommentError;
+        issueCommentAttempts += 1;
+        const failureCount = options.issueCommentFailureCount;
+        const shouldFail =
+          failureCount !== undefined
+            ? issueCommentAttempts <= failureCount
+            : options.issueCommentError !== undefined;
+        if (shouldFail) {
+          throw (
+            options.issueCommentError ??
+            new Error("postIssueComment forced failure")
+          );
         }
         postedIssueComments.push({ issueNumber, body });
       },
@@ -125,7 +142,9 @@ function makeToolkit(options: {
       },
     },
     log: {
-      write: async () => {},
+      write: async (message: string) => {
+        logMessages.push(message);
+      },
     },
   };
 
@@ -136,6 +155,8 @@ function makeToolkit(options: {
     postedPrComments,
     createdIssues,
     closedIssues,
+    logMessages,
+    issueCommentAttempts: () => issueCommentAttempts,
   };
 }
 
@@ -362,6 +383,112 @@ describe("issueCommentReplyStrategy", () => {
     assert.match(postedIssueComments[0]!.body, /Failed to close issue #77/);
     assert.match(postedIssueComments[0]!.body, /permission denied/);
     assert.match(postedIssueComments[0]!.body, /Opened follow-up issue #501/);
+  });
+
+  test("retries the source reply post and succeeds when the third attempt lands", async () => {
+    const {
+      tk,
+      postedIssueComments,
+      logMessages,
+      issueCommentAttempts,
+    } = makeToolkit({
+      issueCommentError: new Error("503 service unavailable"),
+      issueCommentFailureCount: 2,
+      replyResult: {
+        kind: "succeeded",
+        stdout: replyEnvelope({ replyComment: "Eventually delivered." }),
+      },
+    });
+
+    const result = await issueCommentReplyStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(issueCommentAttempts(), 3);
+    assert.equal(postedIssueComments.length, 1);
+    assert.equal(postedIssueComments[0]!.body, "Eventually delivered.");
+    assert.equal(
+      logMessages.filter((m) => /attempt 1\/3 failed/.test(m)).length,
+      1,
+    );
+    assert.equal(
+      logMessages.filter((m) => /attempt 2\/3 failed/.test(m)).length,
+      1,
+    );
+    assert.ok(
+      logMessages.some((m) => /posted on attempt 3\/3/.test(m)),
+      "successful retry must be logged",
+    );
+    assert.ok(
+      !logMessages.some((m) => /giving up/.test(m)),
+      "successful retry must not log a giving-up line",
+    );
+  });
+
+  test("gives up after 3 failed source-reply attempts and logs the intended body with receipts", async () => {
+    const {
+      tk,
+      postedIssueComments,
+      postedPrComments,
+      logMessages,
+      issueCommentAttempts,
+    } = makeToolkit({
+      issueCommentError: new Error("502 bad gateway"),
+      replyResult: {
+        kind: "succeeded",
+        stdout: replyEnvelope({
+          replyComment: "Side effects ran but reply might fail.",
+          additionalActions: [
+            {
+              kind: "comment",
+              targetKind: "pull_request",
+              targetNumber: 88,
+              body: "PR notice already posted.",
+            },
+          ],
+        }),
+      },
+    });
+
+    const result = await issueCommentReplyStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "failed");
+    if (result.status !== "failed") return;
+    assert.match(result.errorSummary, /after 3 attempts/);
+    assert.match(result.errorSummary, /502 bad gateway/);
+
+    assert.equal(issueCommentAttempts(), 3);
+    assert.equal(postedIssueComments.length, 0);
+    assert.equal(postedPrComments.length, 1);
+
+    for (const attempt of [1, 2, 3]) {
+      assert.equal(
+        logMessages.filter((m) =>
+          new RegExp(`attempt ${attempt}/3 failed`).test(m),
+        ).length,
+        1,
+        `attempt ${attempt} failure must be logged exactly once`,
+      );
+    }
+    const givingUp = logMessages.find((m) => /giving up/.test(m));
+    assert.ok(givingUp, "must log a giving-up line carrying the intended body");
+    assert.match(
+      givingUp!,
+      /Side effects ran but reply might fail\./,
+      "intended replyComment must be in the giving-up log",
+    );
+    assert.match(
+      givingUp!,
+      /Commented on pull request #88/,
+      "side-effect receipts must be in the giving-up log",
+    );
   });
 
   test("forwards rate_limited from ai.run with toolName preserved", async () => {
