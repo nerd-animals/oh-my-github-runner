@@ -27,6 +27,8 @@ export const prImplementStrategy: Strategy = {
         { kind: "file", path: "personas/implementation" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/mutate" },
+        { kind: "omgr-doc", path: ".omgr/architecture.md" },
+        { kind: "omgr-doc", path: ".omgr/testing.md" },
         { kind: "context", key: "pr-body" },
         { kind: "context", key: "pr-comments" },
         { kind: "context", key: "pr-diff" },

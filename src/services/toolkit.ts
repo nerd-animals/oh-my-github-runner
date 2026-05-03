@@ -242,9 +242,10 @@ class ToolkitImpl implements Toolkit {
           errorSummary: `ai.run: tool '${toolName}' is not in strategy's declared uses (${this.declaredTools.join(", ")})`,
         };
       }
-      const promptText = this.options.promptRenderer.render(
+      const promptText = await this.options.promptRenderer.render(
         opts.prompt,
         this.cachedContext,
+        this.active.path,
       );
       const result = await this.options.toolRegistry.resolve(toolName).run({
         task: this.task,

@@ -14,7 +14,8 @@ export type PromptFragment =
   | { kind: "file"; path: string }
   | { kind: "literal"; text: string }
   | { kind: "context"; key: ContextKey }
-  | { kind: "user"; text: string };
+  | { kind: "user"; text: string }
+  | { kind: "omgr-doc"; path: string };
 
 export interface AiRunOptions {
   /**

@@ -79,8 +79,16 @@ function buildToolkit(opts: {
     }),
     cleanupWorkspace: async () => {},
   } as unknown as WorkspaceManager;
+  const renderCalls: Array<{ workspacePath: string }> = [];
   const promptRenderer = {
-    render: () => "rendered prompt",
+    render: async (
+      _fragments: unknown,
+      _ctx: unknown,
+      workspacePath: string,
+    ) => {
+      renderCalls.push({ workspacePath });
+      return "rendered prompt";
+    },
   } as unknown as PromptRenderer;
   const logStore = {
     write: async () => {},
@@ -94,7 +102,7 @@ function buildToolkit(opts: {
     promptRenderer,
     toolsForTask: () => opts.declared,
   });
-  return { factory, calls, cleanups };
+  return { factory, calls, cleanups, renderCalls };
 }
 
 describe("ToolkitFactory.create", () => {
@@ -202,6 +210,24 @@ describe("toolkit.ai.run — multi-tool strategy", () => {
     assert.equal(result.kind, "failed");
     if (result.kind !== "failed") return;
     assert.match(result.errorSummary, /not in strategy's declared uses/);
+  });
+});
+
+describe("toolkit.ai.run — prompt render wiring", () => {
+  test("forwards active workspace path to PromptRenderer.render", async () => {
+    const { factory, renderCalls } = buildToolkit({ declared: ["claude"] });
+    const tk = factory.create(task);
+
+    await using ws = await tk.workspace.prepareObserve(task);
+    void ws;
+    await tk.github.fetchContext(task);
+
+    await tk.ai.run({
+      prompt: [{ kind: "literal", text: "hi" }],
+    });
+
+    assert.equal(renderCalls.length, 1);
+    assert.equal(renderCalls[0]?.workspacePath, "/tmp/ws");
   });
 });
 
