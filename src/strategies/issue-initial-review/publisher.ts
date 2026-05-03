@@ -35,6 +35,8 @@ export async function runPublisher(
     tool: PUBLISHER_TOOL,
     prompt: [
       { kind: "file", path: "_common/work-rules" },
+      { kind: "file", path: "_common/tone" },
+      { kind: "file", path: "_common/engineering-stance" },
       { kind: "file", path: "personas/publisher" },
       { kind: "file", path: "modes/collect-only" },
       { kind: "literal", text: header(task, ctx) },
