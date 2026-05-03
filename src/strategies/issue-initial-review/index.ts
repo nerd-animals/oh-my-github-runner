@@ -13,7 +13,7 @@ const TIMEOUT_MS = PER_PERSONA_TIMEOUT_MS * 2;
 
 export const issueInitialReviewStrategy: Strategy = {
   policies: {
-    uses: { claude: true, codex: true, gemini: true },
+    uses: { claude: true, codex: true },
     supersedeOnSameSource: true,
     timeoutMs: TIMEOUT_MS,
   },

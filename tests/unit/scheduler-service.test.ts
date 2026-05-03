@@ -60,9 +60,9 @@ describe("SchedulerService", () => {
         createTask("task_multi", "queued", "repo-a"),
         createTask("task_solo", "queued", "repo-b"),
       ],
-      pausedTools: new Set(["gemini"]),
+      pausedTools: new Set(["codex"]),
       toolsForTask: (task) =>
-        task.taskId === "task_multi" ? ["claude", "gemini"] : ["claude"],
+        task.taskId === "task_multi" ? ["claude", "codex"] : ["claude"],
     });
 
     assert.deepEqual(selected, ["task_solo"]);

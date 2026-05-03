@@ -1,6 +1,6 @@
 # Overview
 
-Single-owner, single-VM GitHub automation runner. Webhook → enqueue → daemon → clone target repo → run AI tool CLI (claude/codex/gemini) → post back.
+Single-owner, single-VM GitHub automation runner. Webhook → enqueue → daemon → clone target repo → run AI tool CLI (claude/codex) → post back.
 
 ## Terms
 

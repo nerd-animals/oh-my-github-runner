@@ -124,11 +124,10 @@ const ALL_SUCCEEDED: Record<string, AiRunResult> = {
 };
 
 describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
-  test("declares all three tools in policies.uses so the daemon waits for all to be rate-limit-clear", () => {
+  test("declares both tools in policies.uses so the daemon waits for all to be rate-limit-clear", () => {
     assert.deepEqual(issueInitialReviewStrategy.policies.uses, {
       claude: true,
       codex: true,
-      gemini: true,
     });
   });
 
@@ -198,13 +197,13 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
     // Appendix with collapsible details and tool labels.
     assert.match(posted.body, /<details><summary>Architect 관점 \(claude\)<\/summary>/);
     assert.match(posted.body, /<details><summary>Test 관점 \(codex\)<\/summary>/);
-    assert.match(posted.body, /<details><summary>Ops 관점 \(gemini\)<\/summary>/);
+    assert.match(posted.body, /<details><summary>Ops 관점 \(codex\)<\/summary>/);
     assert.match(posted.body, /<details><summary>Maintenance 관점 \(codex\)<\/summary>/);
     assert.match(posted.body, /architect findings/);
     assert.match(posted.body, /maintenance findings/);
   });
 
-  test("publisher runs with gemini tool", async () => {
+  test("publisher runs with codex tool", async () => {
     const { tk, aiCalls } = makeToolkit({ resultsByPersona: ALL_SUCCEEDED });
 
     await issueInitialReviewStrategy.run(
@@ -219,7 +218,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
       ),
     );
     assert.ok(publisherCall, "publisher must be invoked");
-    assert.equal(publisherCall.tool, "gemini");
+    assert.equal(publisherCall.tool, "codex");
   });
 
   test("each persona prompt includes its mapped .omgr doc; publisher has none", async () => {
@@ -274,7 +273,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
   test("publisher rate_limited → fallback comment with appendix only", async () => {
     const { tk, aiCalls, postedIssueComments } = makeToolkit({
       resultsByPersona: ALL_SUCCEEDED,
-      publisherResult: { kind: "rate_limited", toolName: "gemini" },
+      publisherResult: { kind: "rate_limited", toolName: "codex" },
     });
 
     const result = await issueInitialReviewStrategy.run(
@@ -288,7 +287,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
     assert.equal(postedIssueComments.length, 1);
     const body = postedIssueComments[0]!.body;
     assert.match(body, /통합 요약 생성에 실패했습니다/);
-    assert.match(body, /publisher \(gemini\) rate-limited/);
+    assert.match(body, /publisher \(codex\) rate-limited/);
     assert.match(body, /<details><summary>Architect 관점/);
     assert.match(body, /<details><summary>Maintenance 관점/);
     assert.doesNotMatch(body, /캐시 도입 검토 필요/); // synthesis must not appear
@@ -297,7 +296,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
   test("publisher failed → fallback comment with appendix only", async () => {
     const { tk, postedIssueComments } = makeToolkit({
       resultsByPersona: ALL_SUCCEEDED,
-      publisherResult: { kind: "failed", errorSummary: "gemini boom" },
+      publisherResult: { kind: "failed", errorSummary: "codex boom" },
     });
 
     const result = await issueInitialReviewStrategy.run(
@@ -309,7 +308,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
     assert.deepEqual(result, { status: "succeeded" });
     const body = postedIssueComments[0]!.body;
     assert.match(body, /통합 요약 생성에 실패했습니다/);
-    assert.match(body, /gemini boom/);
+    assert.match(body, /codex boom/);
     assert.match(body, /<details><summary>Architect 관점/);
   });
 
@@ -318,7 +317,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
       resultsByPersona: {
         architect: { kind: "succeeded", stdout: "architect findings" },
         test: { kind: "succeeded", stdout: "test findings" },
-        ops: { kind: "rate_limited", toolName: "gemini" },
+        ops: { kind: "rate_limited", toolName: "codex" },
         maintenance: { kind: "succeeded", stdout: "maintenance findings" },
       },
     });
@@ -331,7 +330,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "gemini");
+    assert.equal(result.toolName, "codex");
     // Only personas ran; publisher must not have been invoked.
     assert.equal(aiCalls.length, 4);
     assert.equal(postedIssueComments.length, 0);
@@ -342,7 +341,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
       resultsByPersona: {
         architect: { kind: "succeeded", stdout: "architect findings" },
         test: { kind: "failed", errorSummary: "codex crashed" },
-        ops: { kind: "rate_limited", toolName: "gemini" },
+        ops: { kind: "rate_limited", toolName: "codex" },
         maintenance: { kind: "succeeded", stdout: "maintenance findings" },
       },
     });
@@ -355,7 +354,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "gemini");
+    assert.equal(result.toolName, "codex");
     assert.equal(postedIssueComments.length, 0);
   });
 
