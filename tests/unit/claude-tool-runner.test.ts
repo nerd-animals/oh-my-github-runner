@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, test } from "node:test";
 import type {
   ProcessRunner,
@@ -158,6 +159,69 @@ describe("ClaudeToolRunner.run", () => {
     assert.deepEqual(calls[0]?.args, ["-p"]);
   });
 
+  test("with outputSchema: passes --json-schema with serialized schema and surfaces stdout as succeeded", async () => {
+    const replyJson =
+      '{"replyComment":"hi","additionalActions":[],"reasoning":"ack"}';
+    const { processRunner, calls } = makeProcessRunner({
+      exitCode: 0,
+      stdout: replyJson,
+    });
+    const runner = new ClaudeToolRunner({ ...baseRunnerOptions, processRunner });
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["replyComment"],
+      properties: { replyComment: { type: "string" } },
+    } as const;
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "decide",
+      outputSchema: schema,
+    });
+
+    const args = calls[0]?.args ?? [];
+    const flagIdx = args.indexOf("--json-schema");
+    assert.ok(flagIdx >= 0, "--json-schema must be passed");
+    assert.deepEqual(JSON.parse(args[flagIdx + 1] ?? ""), schema);
+
+    assert.equal(result.kind, "succeeded");
+    if (result.kind === "succeeded") {
+      assert.equal(result.stdout, replyJson);
+    }
+  });
+
+  test("with outputSchema: returns failed when stdout is empty despite exit 0", async () => {
+    const { processRunner } = makeProcessRunner({
+      exitCode: 0,
+      stdout: "   \n",
+      stderr: "",
+    });
+    const runner = new ClaudeToolRunner({ ...baseRunnerOptions, processRunner });
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "hi",
+      outputSchema: { type: "object" },
+    });
+
+    assert.equal(result.kind, "failed");
+    if (result.kind !== "failed") return;
+    assert.equal(result.exitCode, 0);
+    assert.match(result.stderr, /empty stdout despite outputSchema/);
+  });
+
+  test("without outputSchema: --json-schema is absent from args", async () => {
+    const { processRunner, calls } = makeProcessRunner();
+    const runner = new ClaudeToolRunner({ ...baseRunnerOptions, processRunner });
+
+    await runner.run({ task, workspacePath: "/tmp/ws", prompt: "hi" });
+
+    assert.ok(!(calls[0]?.args ?? []).includes("--json-schema"));
+  });
+
   test("returns succeeded on exit 0", async () => {
     const { processRunner } = makeProcessRunner({ exitCode: 0, stdout: "done" });
     const runner = new ClaudeToolRunner({ ...baseRunnerOptions, processRunner });
@@ -219,28 +283,34 @@ describe("ClaudeToolRunner.run", () => {
 describe("ClaudeToolRunner.cleanupArtifacts", () => {
   test("removes the encoded projects dir for a workspace inside workspacesDir", async () => {
     const { fs, calls } = makeFs();
+    const workspacesDir = "/home/ubuntu/runner-deploy/var/workspaces";
+    const claudeHome = "/home/ubuntu/.claude";
+    const workspacePath =
+      "/home/ubuntu/runner-deploy/var/workspaces/task_1777391732491_qc7ixeyy";
     const runner = new ClaudeToolRunner({
       ...baseRunnerOptions,
       processRunner: makeProcessRunner().processRunner,
-      workspacesDir: "/home/ubuntu/runner-deploy/var/workspaces",
-      claudeHome: "/home/ubuntu/.claude",
+      workspacesDir,
+      claudeHome,
       fs,
     });
 
-    await runner.cleanupArtifacts(
-      "/home/ubuntu/runner-deploy/var/workspaces/task_1777391732491_qc7ixeyy",
+    await runner.cleanupArtifacts(workspacePath);
+
+    const target = path.join(
+      claudeHome,
+      "projects",
+      encodeProjectsDirName(path.resolve(workspacePath)),
     );
 
     assert.deepEqual(calls, [
       {
         op: "stat",
-        target:
-          "/home/ubuntu/.claude/projects/-home-ubuntu-runner-deploy-var-workspaces-task-1777391732491-qc7ixeyy",
+        target,
       },
       {
         op: "rm",
-        target:
-          "/home/ubuntu/.claude/projects/-home-ubuntu-runner-deploy-var-workspaces-task-1777391732491-qc7ixeyy",
+        target,
       },
     ]);
   });

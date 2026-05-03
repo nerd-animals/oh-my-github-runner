@@ -47,18 +47,3 @@ export const MUTATE_ALLOWED: readonly string[] = [
 export const MUTATE_DISALLOWED: readonly string[] = [
   "shell:gh pr merge",
 ];
-
-// Narrow carve-outs from `OBSERVE_ALLOWED` for issue-comment-reply: the
-// strategy's contract lets the model use the full `gh` surface to fulfill
-// natural-language action delegations (label, open follow-up issue, etc.),
-// but anything that can mutate the codebase or repo metadata stays blocked.
-export const REPLY_DISALLOWED: readonly string[] = [
-  "shell:gh pr merge",
-  "shell:gh repo edit",
-  "shell:gh repo delete",
-  "shell:gh release create",
-  "shell:gh release delete",
-  "shell:gh ruleset",
-  "shell:gh workflow",
-  "shell:git push",
-];

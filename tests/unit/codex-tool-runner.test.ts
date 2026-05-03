@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import { describe, test } from "node:test";
 import type {
   ProcessRunner,
@@ -26,12 +27,14 @@ const task: TaskRecord = {
 };
 
 interface FsCall {
-  op: "mkdir" | "writeFile" | "rm";
+  op: "mkdir" | "writeFile" | "readFile" | "rm";
   target: string;
   contents?: string;
 }
 
-function makeFs(): { fs: CodexFs; calls: FsCall[] } {
+function makeFs(
+  options: { readFiles?: Record<string, string>; readFileMissing?: boolean } = {},
+): { fs: CodexFs; calls: FsCall[] } {
   const calls: FsCall[] = [];
   const fs: CodexFs = {
     mkdir: async (target, _opts) => {
@@ -40,6 +43,19 @@ function makeFs(): { fs: CodexFs; calls: FsCall[] } {
     },
     writeFile: async (target, contents) => {
       calls.push({ op: "writeFile", target, contents });
+    },
+    readFile: async (target) => {
+      calls.push({ op: "readFile", target });
+      if (options.readFileMissing === true) {
+        const err = new Error(`ENOENT: ${target}`);
+        (err as NodeJS.ErrnoException).code = "ENOENT";
+        throw err;
+      }
+      const stub = options.readFiles?.[target];
+      if (stub !== undefined) {
+        return stub;
+      }
+      return "";
     },
     rm: async (target, _opts) => {
       calls.push({ op: "rm", target });
@@ -129,6 +145,7 @@ describe("CodexToolRunner.run", () => {
     const { fs, calls: fsCalls } = makeFs();
     const { processRunner } = makeProcessRunner();
     const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const rulesDir = path.join("/tmp/ws", ".codex", "rules");
 
     await runner.run({
       task,
@@ -141,8 +158,8 @@ describe("CodexToolRunner.run", () => {
     const mkdirCall = fsCalls.find((c) => c.op === "mkdir");
     const writeCall = fsCalls.find((c) => c.op === "writeFile");
 
-    assert.equal(mkdirCall?.target, "/tmp/ws/.codex/rules");
-    assert.equal(writeCall?.target, "/tmp/ws/.codex/rules/default.rules");
+    assert.equal(mkdirCall?.target, rulesDir);
+    assert.equal(writeCall?.target, path.join(rulesDir, "default.rules"));
     assert.match(writeCall?.contents ?? "", /pattern = \["gh"\][^]*decision = "allow"/);
     assert.match(
       writeCall?.contents ?? "",
@@ -205,6 +222,120 @@ describe("CodexToolRunner.run", () => {
     assert.equal(result.kind, "succeeded");
   });
 
+  test("with outputSchema: writes schema file, passes --output-schema and -o, returns last-message contents as stdout", async () => {
+    const lastMessageBody = '{"decision_type":"no_action","reasoning":"ack only"}';
+    const codexDir = path.join("/tmp/ws", ".codex");
+    const schemaFile = path.join(codexDir, "output.schema.json");
+    const lastMsgFile = path.join(codexDir, "last-message.txt");
+    const { fs, calls: fsCalls } = makeFs({
+      readFiles: { [lastMsgFile]: lastMessageBody },
+    });
+    const { processRunner, calls: procCalls } = makeProcessRunner({
+      exitCode: 0,
+      stdout: "raw stdout (should be replaced)",
+    });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      required: ["decision_type"],
+      properties: { decision_type: { type: "string" } },
+    } as const;
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "decide",
+      outputSchema: schema,
+    });
+
+    // mkdir for .codex + writeFile for the schema file
+    const mkdirTargets = fsCalls.filter((c) => c.op === "mkdir").map((c) => c.target);
+    const writeTargets = fsCalls.filter((c) => c.op === "writeFile");
+    assert.ok(mkdirTargets.includes(codexDir));
+    const schemaWrite = writeTargets.find((c) => c.target === schemaFile);
+    assert.ok(schemaWrite, "schema file must be written");
+    assert.deepEqual(JSON.parse(schemaWrite!.contents ?? ""), schema);
+
+    // CLI args include --output-schema <path> and -o <last-message>
+    const args = procCalls[0]?.args ?? [];
+    const schemaIdx = args.indexOf("--output-schema");
+    assert.ok(schemaIdx >= 0, "--output-schema must be passed");
+    assert.equal(args[schemaIdx + 1], schemaFile);
+    const oIdx = args.indexOf("-o");
+    assert.ok(oIdx >= 0, "-o must be passed");
+    assert.equal(args[oIdx + 1], lastMsgFile);
+
+    // -- separator and prompt remain at the tail
+    assert.equal(args[args.length - 2], "--");
+    assert.equal(args[args.length - 1], "decide");
+
+    // stdout should be the last-message file contents, not the raw stdout
+    assert.equal(result.kind, "succeeded");
+    if (result.kind === "succeeded") {
+      assert.equal(result.stdout, lastMessageBody);
+    }
+  });
+
+  test("with outputSchema: falls back to raw stdout when last-message file is missing", async () => {
+    const { fs } = makeFs({ readFileMissing: true });
+    const { processRunner } = makeProcessRunner({ exitCode: 0, stdout: "fallback" });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "x",
+      outputSchema: { type: "object" },
+    });
+
+    assert.equal(result.kind, "succeeded");
+    if (result.kind === "succeeded") {
+      assert.equal(result.stdout, "fallback");
+    }
+  });
+
+  test("with outputSchema: returns failed when last-message file is empty", async () => {
+    const codexDir = path.join("/tmp/ws", ".codex");
+    const lastMsgFile = path.join(codexDir, "last-message.txt");
+    const { fs } = makeFs({ readFiles: { [lastMsgFile]: "   \n" } });
+    const { processRunner } = makeProcessRunner({
+      exitCode: 0,
+      stdout: "codex verbose log",
+      stderr: "",
+    });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+    const result = await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt: "x",
+      outputSchema: { type: "object" },
+    });
+
+    assert.equal(result.kind, "failed");
+    if (result.kind !== "failed") return;
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, "codex verbose log");
+    assert.match(result.stderr, /empty last-message\.txt/);
+  });
+
+  test("without outputSchema: schema file is not written and --output-schema is absent", async () => {
+    const { fs, calls: fsCalls } = makeFs();
+    const { processRunner, calls: procCalls } = makeProcessRunner();
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+    await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
+
+    const writes = fsCalls.filter(
+      (c) => c.op === "writeFile" && c.target.endsWith("output.schema.json"),
+    );
+    assert.equal(writes.length, 0);
+    const args = procCalls[0]?.args ?? [];
+    assert.ok(!args.includes("--output-schema"));
+    assert.ok(!args.includes("-o"));
+  });
+
   test("detects rate-limit phrases on a non-zero exit", async () => {
     const { fs } = makeFs();
     const { processRunner } = makeProcessRunner({
@@ -239,7 +370,7 @@ describe("CodexToolRunner.cleanupArtifacts", () => {
 
     assert.deepEqual(
       calls.filter((c) => c.op === "rm"),
-      [{ op: "rm", target: "/tmp/ws/.codex" }],
+      [{ op: "rm", target: path.join("/tmp/ws", ".codex") }],
     );
   });
 });

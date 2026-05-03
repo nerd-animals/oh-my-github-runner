@@ -63,6 +63,12 @@ export interface GitHubClient {
     issueNumber: number,
     body: string,
   ): Promise<IssueCommentRef>;
+  createIssue(
+    repo: RepoRef,
+    title: string,
+    body: string,
+  ): Promise<{ number: number; url: string }>;
+  closeIssue(repo: RepoRef, issueNumber: number): Promise<void>;
   postPullRequestComment(
     repo: RepoRef,
     pullRequestNumber: number,
