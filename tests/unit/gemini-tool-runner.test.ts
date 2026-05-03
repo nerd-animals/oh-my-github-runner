@@ -9,7 +9,6 @@ import type { TaskRecord } from "../../src/domain/task.js";
 import type { ToolRunInput } from "../../src/domain/tool.js";
 import {
   GeminiToolRunner,
-  pickApprovalMode,
   toPolicyBlock,
   type GeminiFs,
 } from "../../src/infra/tool/gemini-tool-runner.js";
@@ -66,14 +65,6 @@ function makeProcessRunner(result?: Partial<RunProcessResult>): {
   };
   return { processRunner, calls };
 }
-
-describe("pickApprovalMode", () => {
-  test("always returns yolo (plan mode hangs in headless)", () => {
-    assert.equal(pickApprovalMode(["read"]), "yolo");
-    assert.equal(pickApprovalMode(["edit"]), "yolo");
-    assert.equal(pickApprovalMode(undefined), "yolo");
-  });
-});
 
 describe("toPolicyBlock", () => {
   test("emits a run_shell_command rule with commandPrefix for shell entries", () => {

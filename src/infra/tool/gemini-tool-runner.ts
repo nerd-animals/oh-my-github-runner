@@ -53,10 +53,13 @@ export class GeminiToolRunner implements ToolRunner {
     const policyPath = path.join(input.workspacePath, ".gemini", "policy.toml");
     const wrotePolicy = await this.writePolicyFile(policyPath, input);
 
+    // `plan` would be the natural choice for observe-only strategies but
+    // hangs in headless mode in observed gemini-cli versions, so we run
+    // in `yolo` and rely on the policy file for actual fences.
     const args = [
       ...(wrotePolicy ? ["--policy", policyPath] : []),
       "--approval-mode",
-      pickApprovalMode(input.allowedTools),
+      "yolo",
       "--skip-trust",
       "--prompt",
       input.prompt,
@@ -110,16 +113,6 @@ export class GeminiToolRunner implements ToolRunner {
     await this.fs.writeFile(policyPath, blocks.join("\n\n") + "\n");
     return true;
   }
-}
-
-// `--approval-mode plan` is read-only but hangs in headless mode in
-// observed gemini-cli versions, so we always run in `yolo` and rely on
-// the policy file for actual fences. Future versions that fix headless
-// `plan` could let us flip observe-only strategies to plan mode here.
-export function pickApprovalMode(
-  _allowed: readonly string[] | undefined,
-): "yolo" | "auto_edit" | "default" {
-  return "yolo";
 }
 
 // Translate a portable spec entry into a Gemini policy `[[rule]]` block.
