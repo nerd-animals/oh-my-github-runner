@@ -53,7 +53,6 @@ function buildToolkit(opts: {
   const runners = opts.runners ?? {
     claude: stubRunner("claude"),
     codex: stubRunner("codex"),
-    gemini: stubRunner("gemini"),
   };
   const toolRegistry: Pick<ToolRegistry, "resolve"> = {
     resolve: (name) => {
@@ -142,7 +141,7 @@ describe("toolkit.ai.run — single-tool strategy", () => {
     await tk.github.fetchContext(task);
 
     const result = await tk.ai.run({
-      tool: "gemini",
+      tool: "codex",
       prompt: [{ kind: "literal", text: "hi" }],
     });
 
@@ -154,7 +153,7 @@ describe("toolkit.ai.run — single-tool strategy", () => {
 
 describe("toolkit.ai.run — multi-tool strategy", () => {
   test("requires opts.tool to disambiguate", async () => {
-    const { factory } = buildToolkit({ declared: ["claude", "gemini"] });
+    const { factory } = buildToolkit({ declared: ["claude", "codex"] });
     const tk = factory.create(task);
 
     await using ws = await tk.workspace.prepareObserve(task);
@@ -172,7 +171,7 @@ describe("toolkit.ai.run — multi-tool strategy", () => {
 
   test("routes to the requested tool when opts.tool is in declared set", async () => {
     const { factory, calls } = buildToolkit({
-      declared: ["claude", "gemini"],
+      declared: ["claude", "codex"],
     });
     const tk = factory.create(task);
 
@@ -181,7 +180,7 @@ describe("toolkit.ai.run — multi-tool strategy", () => {
     await tk.github.fetchContext(task);
 
     await tk.ai.run({
-      tool: "gemini",
+      tool: "codex",
       prompt: [{ kind: "literal", text: "first" }],
     });
     await tk.ai.run({
@@ -190,12 +189,12 @@ describe("toolkit.ai.run — multi-tool strategy", () => {
     });
 
     assert.equal(calls.length, 2);
-    assert.equal(calls[0]?.toolName, "gemini");
+    assert.equal(calls[0]?.toolName, "codex");
     assert.equal(calls[1]?.toolName, "claude");
   });
 
   test("rejects an opts.tool outside the declared set", async () => {
-    const { factory } = buildToolkit({ declared: ["claude", "gemini"] });
+    const { factory } = buildToolkit({ declared: ["claude", "codex"] });
     const tk = factory.create(task);
 
     await using ws = await tk.workspace.prepareObserve(task);
@@ -203,7 +202,7 @@ describe("toolkit.ai.run — multi-tool strategy", () => {
     await tk.github.fetchContext(task);
 
     const result = await tk.ai.run({
-      tool: "codex",
+      tool: "haiku",
       prompt: [{ kind: "literal", text: "hi" }],
     });
 
@@ -234,7 +233,7 @@ describe("toolkit.ai.run — prompt render wiring", () => {
 describe("toolkit cleanup fan-out", () => {
   test("calls cleanupArtifacts on every declared tool when the workspace disposes", async () => {
     const { factory, cleanups } = buildToolkit({
-      declared: ["claude", "gemini"],
+      declared: ["claude", "codex"],
     });
     const tk = factory.create(task);
 
@@ -245,7 +244,7 @@ describe("toolkit cleanup fan-out", () => {
 
     assert.deepEqual(cleanups.sort(), [
       "claude:/tmp/ws",
-      "gemini:/tmp/ws",
+      "codex:/tmp/ws",
     ]);
   });
 });

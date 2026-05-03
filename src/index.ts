@@ -12,7 +12,6 @@ import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
 import { ClaudeToolRunner } from "./infra/tool/claude-tool-runner.js";
 import { CodexToolRunner } from "./infra/tool/codex-tool-runner.js";
-import { GeminiToolRunner } from "./infra/tool/gemini-tool-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -148,18 +147,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       name: "codex",
       runner: new CodexToolRunner({
         command: process.env.CODEX_COMMAND,
-        processRunner,
-      }),
-    });
-  }
-  if (
-    process.env.GEMINI_COMMAND !== undefined &&
-    process.env.GEMINI_COMMAND.length > 0
-  ) {
-    toolEntries.push({
-      name: "gemini",
-      runner: new GeminiToolRunner({
-        command: process.env.GEMINI_COMMAND,
         processRunner,
       }),
     });

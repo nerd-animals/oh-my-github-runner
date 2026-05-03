@@ -91,7 +91,7 @@ export type ExecuteResult =
 export interface StrategyPolicies {
   /**
    * Set of tools this strategy may route ai.run calls to. Keys are tool
-   * names (e.g. "claude", "codex", "gemini"); only `true` is allowed as
+   * names (e.g. "claude", "codex"); only `true` is allowed as
    * the value, so writing `{ claude: true }` reads as "uses claude".
    * The daemon defers a task until ALL tools listed here are clear of
    * any rate-limit cooldown.

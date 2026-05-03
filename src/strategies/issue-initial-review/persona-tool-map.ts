@@ -16,8 +16,8 @@ export type PersonaId = (typeof PERSONAS)[number]["id"];
 export const TOOL_MAP: Record<PersonaId, string> = {
   architect: "claude",
   test: "codex",
-  ops: "gemini",
+  ops: "codex",
   maintenance: "codex",
 };
 
-export const PUBLISHER_TOOL = "gemini";
+export const PUBLISHER_TOOL = "codex";
