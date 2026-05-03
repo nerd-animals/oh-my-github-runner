@@ -29,6 +29,7 @@ webhook → WebhookHandler → EventDispatcher → EnqueueService → FileQueueS
 - **Instruction**: `src/strategies/<id>.ts` + register in `src/strategies/index.ts` + wire event in `src/services/event-dispatcher.ts`.
 - **AI tool**: `<NAME>_COMMAND` env + `<Name>ToolRunner` in `src/infra/tool/` + register in `src/index.ts` `toolEntries`.
 - **Prompt fragment**: drop md at `definitions/prompts/<sub>/<name>.md`, reference via `{ kind: "file", path: "<sub>/<name>" }`.
+- **Strategy guide**: `.omgr/strategy-development.md` — high-level responsibility and design guidance for instruction Strategies.
 
 ## Hard rules
 
