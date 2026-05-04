@@ -15,6 +15,10 @@ export class RateLimitStateStore {
   private readonly filePath: string;
   private readonly now: () => number;
   private readonly warn: (message: string) => void;
+  // Serializes RMW cycles within one daemon process. The runner is a
+  // single-process singleton (see src/index.ts). If that ever changes,
+  // this needs to become a file-system lock.
+  private mutex: Promise<void> = Promise.resolve();
 
   constructor(options: RateLimitStateStoreOptions) {
     this.filePath = options.filePath;
@@ -37,9 +41,20 @@ export class RateLimitStateStore {
   }
 
   async pause(tool: string, pausedUntil: number): Promise<void> {
-    const state = await this.readState();
-    state.pauses[tool] = pausedUntil;
-    await this.writeState(state);
+    await this.withLock(async () => {
+      const state = await this.readState();
+      state.pauses[tool] = pausedUntil;
+      await this.writeState(state);
+    });
+  }
+
+  private withLock<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutex.then(fn);
+    this.mutex = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
   }
 
   private async readState(): Promise<RawState> {

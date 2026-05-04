@@ -109,6 +109,64 @@ describe("RateLimitStateStore", () => {
     }
   });
 
+  test("preserves all concurrent pauses on a single store instance (single-process singleton)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+
+    try {
+      const filePath = join(dir, "state.json");
+      const store = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+
+      // Without RMW serialization, the two pauses can interleave their
+      // read-modify-write cycles and the second writer overwrites the first.
+      await Promise.all([
+        store.pause("claude", 1_500_000),
+        store.pause("codex", 1_600_000),
+      ]);
+
+      const reader = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_500,
+      });
+      const active = await reader.loadActivePauses();
+
+      assert.equal(active.get("claude"), 1_500_000);
+      assert.equal(active.get("codex"), 1_600_000);
+      assert.equal(active.size, 2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves all concurrent pauses across many tools", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+
+    try {
+      const filePath = join(dir, "state.json");
+      const store = new RateLimitStateStore({
+        filePath,
+        now: () => 0,
+      });
+
+      const tools = Array.from({ length: 16 }, (_, i) => `tool-${i}`);
+      await Promise.all(
+        tools.map((tool, i) => store.pause(tool, 1_000_000 + i)),
+      );
+
+      const reader = new RateLimitStateStore({ filePath, now: () => 0 });
+      const active = await reader.loadActivePauses();
+
+      assert.equal(active.size, tools.length);
+      for (const [i, tool] of tools.entries()) {
+        assert.equal(active.get(tool), 1_000_000 + i);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("recovers cleanly after a corrupt state.json so subsequent pauses persist", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
 
