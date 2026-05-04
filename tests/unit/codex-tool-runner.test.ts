@@ -109,7 +109,7 @@ describe("toPrefixRule", () => {
 });
 
 describe("CodexToolRunner.run", () => {
-  test("invokes codex exec with sandbox + ephemeral + skip-git-repo-check + workspace cd + prompt", async () => {
+  test("invokes codex exec with sandbox + ephemeral + skip-git-repo-check + workspace cd, passing prompt via stdin", async () => {
     const { fs } = makeFs();
     const { processRunner, calls } = makeProcessRunner();
     const runner = new CodexToolRunner({
@@ -136,9 +136,30 @@ describe("CodexToolRunner.run", () => {
       "-C",
       "/tmp/ws",
       "--",
-      "do the thing",
+      "-",
     ]);
     assert.equal(calls[0]?.cwd, "/tmp/ws");
+    assert.equal(calls[0]?.stdin, "do the thing");
+    assert.equal(calls[0]?.args?.includes("do the thing"), false);
+  });
+
+  test("passes a multi-MiB prompt via stdin without writing it to argv (ARG_MAX guard)", async () => {
+    const { fs } = makeFs();
+    const { processRunner, calls } = makeProcessRunner();
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+    // 3 MiB exceeds the typical Linux ARG_MAX (~2 MiB) and would crash
+    // spawn() with E2BIG if the prompt were placed on argv.
+    const prompt = "x".repeat(3 * 1024 * 1024);
+
+    await runner.run({
+      task,
+      workspacePath: "/tmp/ws",
+      prompt,
+    });
+
+    assert.equal(calls[0]?.stdin, prompt);
+    assert.equal(calls[0]?.args?.includes(prompt), false);
   });
 
   test("writes a default.rules file with allow + forbidden prefix rules", async () => {
@@ -266,9 +287,10 @@ describe("CodexToolRunner.run", () => {
     assert.ok(oIdx >= 0, "-o must be passed");
     assert.equal(args[oIdx + 1], lastMsgFile);
 
-    // -- separator and prompt remain at the tail
+    // -- separator and stdin sentinel remain at the tail; prompt body goes via stdin
     assert.equal(args[args.length - 2], "--");
-    assert.equal(args[args.length - 1], "decide");
+    assert.equal(args[args.length - 1], "-");
+    assert.equal(procCalls[0]?.stdin, "decide");
 
     // stdout should be the last-message file contents, not the raw stdout
     assert.equal(result.kind, "succeeded");
