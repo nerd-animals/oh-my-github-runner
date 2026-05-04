@@ -4,6 +4,7 @@ import path from "node:path";
 export interface RateLimitStateStoreOptions {
   filePath: string;
   now?: () => number;
+  warn?: (message: string) => void;
 }
 
 interface RawState {
@@ -13,10 +14,12 @@ interface RawState {
 export class RateLimitStateStore {
   private readonly filePath: string;
   private readonly now: () => number;
+  private readonly warn: (message: string) => void;
 
   constructor(options: RateLimitStateStoreOptions) {
     this.filePath = options.filePath;
     this.now = options.now ?? (() => Date.now());
+    this.warn = options.warn ?? ((message) => console.warn(message));
   }
 
   async loadActivePauses(): Promise<Map<string, number>> {
@@ -47,22 +50,28 @@ export class RateLimitStateStore {
   }
 
   private async readState(): Promise<RawState> {
+    let raw: string;
     try {
-      const raw = await readFile(this.filePath, "utf8");
+      raw = await readFile(this.filePath, "utf8");
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return { pauses: {} };
+      }
+      throw error;
+    }
+
+    try {
       const parsed = JSON.parse(raw) as Partial<RawState>;
       return { pauses: parsed.pauses ?? {} };
     } catch (error) {
-      const isMissingFile =
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        error.code === "ENOENT";
-
-      if (isMissingFile) {
-        return { pauses: {} };
-      }
-
-      throw error;
+      // Corrupt state.json (e.g. half-written after a non-graceful shutdown).
+      // The pause map is reconstructable — the next 429 from any tool will
+      // re-pause it — so resetting is safer than throwing on every tick.
+      const reason = error instanceof Error ? error.message : String(error);
+      this.warn(
+        `[rate-limit-state] corrupt state file at ${this.filePath}: ${reason}; resetting to empty pauses`,
+      );
+      return { pauses: {} };
     }
   }
 
@@ -74,4 +83,13 @@ export class RateLimitStateStore {
     await writeFile(tempPath, JSON.stringify(state, null, 2), "utf8");
     await rename(tempPath, this.filePath);
   }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }

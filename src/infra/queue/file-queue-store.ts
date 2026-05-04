@@ -18,6 +18,7 @@ import type {
 
 export interface FileQueueStoreOptions {
   dataDir: string;
+  warn?: (message: string) => void;
 }
 
 export function createTaskId(): string {
@@ -25,9 +26,16 @@ export function createTaskId(): string {
 }
 
 const TERMINAL_STATUSES = ["succeeded", "failed", "superseded"] as const;
+// Top-level directory siblings of the status directories (queued/, running/,
+// ...) where corrupt task JSON files are quarantined. Picked deliberately
+// outside TASK_STATUSES so listInStatus / pruneTerminalTasks never walk it
+// and so it never collides with the supersede-on-same-source semantics of
+// `superseded/`.
+const CORRUPT_DIR = "corrupt";
 
 export class FileQueueStore implements QueueStore {
   private readonly dataDir: string;
+  private readonly warn: (message: string) => void;
   // Monotonic guard: when two enqueue() calls land in the same millisecond,
   // bump the next createdAt by +1ms so the FIFO sort key stays strictly
   // increasing. Without this the sort tie-breaks on readdir order, which is
@@ -37,6 +45,7 @@ export class FileQueueStore implements QueueStore {
 
   constructor(options: FileQueueStoreOptions) {
     this.dataDir = options.dataDir;
+    this.warn = options.warn ?? ((message) => console.warn(message));
   }
 
   async enqueue(input: QueueTaskInput): Promise<TaskRecord> {
@@ -292,15 +301,55 @@ export class FileQueueStore implements QueueStore {
     status: TaskStatus,
     taskId: string,
   ): Promise<TaskRecord | undefined> {
+    let raw: string;
     try {
-      const raw = await readFile(this.taskPath(status, taskId), "utf8");
-      const record = JSON.parse(raw) as TaskRecord;
-      return record;
+      raw = await readFile(this.taskPath(status, taskId), "utf8");
     } catch (error) {
       if (isMissingFile(error)) {
         return undefined;
       }
       throw error;
+    }
+
+    try {
+      return JSON.parse(raw) as TaskRecord;
+    } catch (error) {
+      // Corrupt task JSON (e.g. half-written after a non-graceful shutdown).
+      // Move it aside so daemon startup / queue scans keep working, but
+      // preserve it under corrupt/ so the user can inspect or recover it
+      // manually — the task record is the only authoritative log of what
+      // was queued.
+      const reason = error instanceof Error ? error.message : String(error);
+      await this.quarantineCorruptFile(status, taskId, reason);
+      return undefined;
+    }
+  }
+
+  private async quarantineCorruptFile(
+    status: TaskStatus,
+    taskId: string,
+    reason: string,
+  ): Promise<void> {
+    const fromPath = this.taskPath(status, taskId);
+    const corruptDir = path.join(this.dataDir, CORRUPT_DIR, status);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const toPath = path.join(corruptDir, `${taskId}.${stamp}.json`);
+
+    try {
+      await mkdir(corruptDir, { recursive: true });
+      await rename(fromPath, toPath);
+      this.warn(
+        `[file-queue-store] quarantined corrupt task file ${fromPath} -> ${toPath}: ${reason}`,
+      );
+    } catch (moveError) {
+      // The file may have vanished between read and rename, or rename may
+      // fail across filesystems. Either way the daemon must keep going —
+      // surface the failure as a warning instead of throwing.
+      const moveReason =
+        moveError instanceof Error ? moveError.message : String(moveError);
+      this.warn(
+        `[file-queue-store] failed to quarantine corrupt task file ${fromPath}: ${moveReason} (original parse error: ${reason})`,
+      );
     }
   }
 
