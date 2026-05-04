@@ -358,24 +358,76 @@ describe("CodexToolRunner.run", () => {
     assert.ok(!args.includes("-o"));
   });
 
-  test("detects rate-limit phrases on a non-zero exit", async () => {
+  // Real codex CLI samples. The first is the production stderr from #107;
+  // the rest are upstream/HTTP-level signals the runner may surface either
+  // directly or via wrapped error envelopes.
+  const RATE_LIMIT_POSITIVES: ReadonlyArray<{ name: string; stderr: string }> = [
+    {
+      name: "codex usage-limit message (#107)",
+      stderr:
+        "ERROR: You've hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:25 AM.",
+    },
+    { name: "HTTP 429 status line", stderr: "Error: HTTP 429 Too Many Requests" },
+    { name: "JSON status:429 envelope", stderr: '{"error":{"status": 429}}' },
+    { name: "Retry-After header", stderr: "Retry-After: 60" },
+    { name: "RATE_LIMIT_EXCEEDED code", stderr: "code=RATE_LIMIT_EXCEEDED" },
+    { name: "quota exceeded phrase", stderr: "quota exceeded for this minute" },
+  ];
+
+  for (const { name, stderr } of RATE_LIMIT_POSITIVES) {
+    test(`classifies as rate_limited: ${name}`, async () => {
+      const { fs } = makeFs();
+      const { processRunner } = makeProcessRunner({ exitCode: 1, stdout: "", stderr });
+      const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+      const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
+
+      assert.equal(result.kind, "rate_limited", `expected rate_limited for: ${stderr}`);
+      if (result.kind !== "rate_limited") return;
+      assert.equal(result.toolName, "codex");
+    });
+  }
+
+  // Substrings that the previous bare `/rate.?limit/i` pattern matched as
+  // false positives: file-path components, test fixture names, debug logs,
+  // and user comments echoed back into stdout/stderr.
+  const RATE_LIMIT_NEGATIVES: ReadonlyArray<{ name: string; stderr: string }> = [
+    { name: "hyphenated path component", stderr: "Error reading rate-limit-exempt path" },
+    { name: "test fixture name", stderr: "FAIL: rate limited test fixture" },
+    { name: "debug log line", stderr: "WARN: rate-limited path detected" },
+    {
+      name: "user comment echo",
+      stderr: 'User said: "please respect the rate limit when calling the API"',
+    },
+  ];
+
+  for (const { name, stderr } of RATE_LIMIT_NEGATIVES) {
+    test(`classifies as failed (false-positive guard): ${name}`, async () => {
+      const { fs } = makeFs();
+      const { processRunner } = makeProcessRunner({ exitCode: 1, stdout: "", stderr });
+      const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+
+      const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
+
+      assert.equal(result.kind, "failed", `expected failed for: ${stderr}`);
+    });
+  }
+
+  test("exit 0 stays succeeded even when output contains rate-limit phrases", async () => {
+    // _shared.classifyResult short-circuits on exit 0; pin that invariant
+    // so a future refactor cannot accidentally promote a successful run
+    // to rate_limited just because the model echoed the phrase.
     const { fs } = makeFs();
     const { processRunner } = makeProcessRunner({
-      exitCode: 1,
-      stdout: "",
-      stderr: "rate-limit reached, retry later",
+      exitCode: 0,
+      stdout: "You've hit your usage limit",
+      stderr: "HTTP 429",
     });
     const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
 
-    const result = await runner.run({
-      task,
-      workspacePath: "/tmp/ws",
-      prompt: "x",
-    });
+    const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
 
-    assert.equal(result.kind, "rate_limited");
-    if (result.kind !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.equal(result.kind, "succeeded");
   });
 });
 
