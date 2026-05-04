@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import {
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
   rm,
   utimes,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -375,6 +377,176 @@ describe("FileQueueStore", () => {
       assert.equal(await countOccurrences(task.taskId), 1);
       await store.completeTask(task.taskId, { status: "succeeded" });
       assert.equal(await countOccurrences(task.taskId), 1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("listTasks does not throw when a queued task file is corrupt and quarantines it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const warnings: string[] = [];
+      const store = new FileQueueStore({
+        dataDir: root,
+        warn: (message) => warnings.push(message),
+      });
+
+      const healthy = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 1 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+
+      // Plant a half-written task JSON next to the healthy one. This is
+      // the failure mode the issue describes: a non-graceful shutdown
+      // leaves a truncated file that JSON.parse cannot consume.
+      const corruptId = "task_corrupt_abc";
+      await mkdir(join(root, "queued"), { recursive: true });
+      await writeFile(
+        join(root, "queued", `${corruptId}.json`),
+        '{ "taskId": "task_corrupt_abc", "status":',
+        "utf8",
+      );
+
+      const tasks = await store.listTasks();
+
+      assert.deepEqual(
+        tasks.map((task) => task.taskId),
+        [healthy.taskId],
+      );
+
+      // Corrupt file is gone from queued/...
+      const queuedEntries = await readdir(join(root, "queued"));
+      assert.deepEqual(queuedEntries, [`${healthy.taskId}.json`]);
+
+      // ...and preserved under corrupt/queued/ for forensic recovery.
+      const quarantined = await readdir(join(root, "corrupt", "queued"));
+      assert.equal(quarantined.length, 1);
+      assert.match(quarantined[0] ?? "", new RegExp(`^${corruptId}\\.`));
+
+      assert.equal(warnings.length, 1);
+      assert.match(warnings[0] ?? "", /quarantined corrupt task file/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("getTask returns undefined for a corrupt task and quarantines it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({
+        dataDir: root,
+        warn: () => {},
+      });
+
+      const corruptId = "task_corrupt_def";
+      await mkdir(join(root, "running"), { recursive: true });
+      await writeFile(
+        join(root, "running", `${corruptId}.json`),
+        "",
+        "utf8",
+      );
+
+      const result = await store.getTask(corruptId);
+
+      assert.equal(result, undefined);
+
+      const runningEntries = await readdir(join(root, "running"));
+      assert.deepEqual(runningEntries, []);
+
+      const quarantined = await readdir(join(root, "corrupt", "running"));
+      assert.equal(quarantined.length, 1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("recoverRunningTasks skips corrupt files and recovers the healthy ones", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({
+        dataDir: root,
+        warn: () => {},
+      });
+
+      const healthy = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 7 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+      await store.startTask(healthy.taskId);
+
+      // A second running task whose JSON is corrupt — the case that was
+      // bricking daemon startup before this fix.
+      await writeFile(
+        join(root, "running", "task_corrupt_xyz.json"),
+        "{not json",
+        "utf8",
+      );
+
+      await store.recoverRunningTasks("daemon interrupted before completion");
+
+      const reloaded = await store.getTask(healthy.taskId);
+      assert.equal(reloaded?.status, "failed");
+      assert.equal(
+        reloaded?.errorSummary,
+        "daemon interrupted before completion",
+      );
+
+      assert.deepEqual(await readdir(join(root, "running")), []);
+
+      const quarantined = await readdir(join(root, "corrupt", "running"));
+      assert.equal(quarantined.length, 1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("listTasks preserves FIFO order for healthy tasks even with a corrupt sibling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "queue-store-"));
+
+    try {
+      const store = new FileQueueStore({
+        dataDir: root,
+        warn: () => {},
+      });
+
+      const a = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 1 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+      const b = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 2 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+      const c = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 3 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+
+      await writeFile(
+        join(root, "queued", "task_corrupt_mid.json"),
+        "broken",
+        "utf8",
+      );
+
+      const tasks = await store.listTasks();
+      const queuedIds = tasks
+        .filter((task) => task.status === "queued")
+        .map((task) => task.taskId);
+
+      assert.deepEqual(queuedIds, [a.taskId, b.taskId, c.taskId]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
