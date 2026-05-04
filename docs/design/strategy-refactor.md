@@ -14,7 +14,7 @@
 | Layer | 정체 | 현재 명명 |
 |---|---|---|
 | 3 (시스템 자신) | 진짜 agent — task 처리 흐름 | (이름 없음) |
-| 2 (LLM CLI) | claude / codex / gemini = "프롬프트 in / 텍스트 out" 도구 | `AgentRunner` (잘못된 이름) |
+| 2 (LLM CLI) | claude / codex = "프롬프트 in / 텍스트 out" 도구 | `AgentRunner` (잘못된 이름) |
 | 1 (OS 프로세스) | `processRunner` | OK |
 
 `task.agent` 필드는 의미상 `tool` 또는 `toolName`이 정확하지만 당장 rename은 별 작업.
@@ -70,7 +70,7 @@ interface Toolkit {
 }
 
 interface AiRunOptions {
-  agent: "claude" | "codex" | "gemini";    // 이름은 그대로 (rename은 별 작업)
+  tool?: string;                            // strategy.policies.uses 키. 단일 tool이면 추론 가능
   prompt: PromptFragment[];                 // 조립 재료 리스트
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -308,7 +308,7 @@ const issueInitialReviewStrategy: Strategy = {
     for (const persona of personas) {
       signal.throwIfAborted();
       const r = await tk.ai.run({
-        agent: "claude",
+        tool: "claude",
         prompt: [
           { kind: "file", path: "_common/work-rules" },
           { kind: "file", path: `personas/${persona}` },
@@ -340,8 +340,8 @@ const issueCommentReplyStrategy: Strategy = {
     await using ws = await tk.workspace.prepareObserve(task);
     const ctx = await tk.github.fetchContext(task);
 
+    // tool 미지정 → policies.uses에 선언된 단일 tool로 추론
     const r = await tk.ai.run({
-      agent: task.agent,
       prompt: [
         { kind: "file", path: "_common/work-rules" },
         { kind: "file", path: "personas/architecture" },
@@ -355,7 +355,7 @@ const issueCommentReplyStrategy: Strategy = {
       disallowedTools: OBSERVE_DISALLOWED,
     });
     return r.kind === "succeeded" ? ok() : failed(r);
-    // observe.md "communication is your job" — agent가 스스로 댓글
+    // observe.md "communication is your job" — tool이 스스로 댓글
   },
 };
 ```
@@ -373,7 +373,7 @@ const issueCommentReplyStrategy: Strategy = {
 7. **`runner-daemon.ts:97-100`의 `instruction.revision`** — Strategy 모델에서 revision 개념이 어색해짐. 감사용 metadata로만 남기거나 제거.
 8. **enqueue 후 supersede 순서가 중요** — 새 task 먼저 큐 진입, 그 다음 옛 task 정리. 역순이면 중간에 큐가 비는 race.
 9. **`definitions/prompts/_common/work-rules.md`, `personas/*.md`** 그대로 활용. **`modes/*.md`**는 fragment로 재포지션.
-10. **`TaskRecord.agent` 필드 의미는 "tool 이름"** — strategy가 `task.agent`를 `ai.run({agent: ...})`에 전달.
+10. **tool 라우팅은 `Strategy.policies.uses` 기반** — `ai.run`에 `tool` 미지정 시 단일 등록 tool로 추론, 다중 등록이면 호출 시점에 명시.
 
 ---
 
@@ -392,4 +392,4 @@ const issueCommentReplyStrategy: Strategy = {
 
 ## 7. 한 단락 요약
 
-이 시스템은 "yaml + mode enum + workflow + instruction-loader"로 행동을 표현하던 OOP-heavy 모델을 **"id 키로 등록된 strategy 함수 + RAII + 평탄 task 데이터"로 환원**한다. agent라는 단어는 시스템 자신에 돌려주고, claude/codex/gemini는 Layer 2 도구로 격하. branch에 taskId를 박아 same-repo-mutate race를 없애고, 같은 source 중복 트리거는 enqueue 시점 supersede로 처리. workspace lifetime은 `await using`으로 보장. yaml/InstructionDefinition은 폐기, 메타는 strategy의 작은 정책 객체로 흡수. 결과적으로 "이 instructionId가 무엇을 어떻게 하는지"가 strategy 파일 한 곳에서 끝나는 단일 source of truth가 된다.
+이 시스템은 "yaml + mode enum + workflow + instruction-loader"로 행동을 표현하던 OOP-heavy 모델을 **"id 키로 등록된 strategy 함수 + RAII + 평탄 task 데이터"로 환원**한다. agent라는 단어는 시스템 자신에 돌려주고, claude/codex는 Layer 2 도구로 격하. branch에 taskId를 박아 same-repo-mutate race를 없애고, 같은 source 중복 트리거는 enqueue 시점 supersede로 처리. workspace lifetime은 `await using`으로 보장. yaml/InstructionDefinition은 폐기, 메타는 strategy의 작은 정책 객체로 흡수. 결과적으로 "이 instructionId가 무엇을 어떻게 하는지"가 strategy 파일 한 곳에서 끝나는 단일 source of truth가 된다.
