@@ -21,15 +21,21 @@ export interface CodexToolRunnerOptions {
   fs?: CodexFs;
 }
 
-// Codex CLI surfaces quota/rate-limit conditions through its websocket
-// client; the wire phrasing observed so far matches the patterns below.
-// Empty patterns just mean "no rate-limit detection yet" — quota errors
-// will surface as ordinary `failed` results until a sample is captured
-// in production and added here.
+// Match only explicit rate-limit signals. A bare `/rate.?limit/i` substring
+// matched ordinary failure logs ("rate-limit-exempt path", debug noise,
+// echoed user comments) and promoted them to `rate_limited`, which the
+// daemon then paused for an hour. Under-detection (a real rate-limit
+// surfaces as `failed`) is cheaper than over-detection here — a failed
+// task is retried immediately by the user, while an oversold rate-limit
+// stalls the queue. The first pattern is the production sample from
+// codex CLI (#107).
 const RATE_LIMIT_PATTERNS: readonly RegExp[] = [
-  /rate.?limit/i,
-  /"status":\s*429/,
-  /quota.*exceeded/i,
+  /You've hit your.*usage limit/i,
+  /\bRATE_LIMIT_EXCEEDED\b/,
+  /"status":\s*429\b/,
+  /\bHTTP\s+429\b/,
+  /\bRetry-After:\s*\d+/i,
+  /\bquota\s+exceeded\b/i,
 ];
 
 export class CodexToolRunner implements ToolRunner {
