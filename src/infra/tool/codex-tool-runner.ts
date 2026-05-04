@@ -66,12 +66,18 @@ export class CodexToolRunner implements ToolRunner {
         lastMessagePath,
       );
     }
-    args.push("--", input.prompt);
+    // Pass the prompt body via stdin instead of argv. argv totals are
+    // capped by the kernel's ARG_MAX (~2 MiB on Linux); large publisher
+    // prompts (multi-persona results + omgr docs + diff context) can
+    // approach that limit and crash spawn() with E2BIG. `codex exec`
+    // reads instructions from stdin when the positional prompt is `-`.
+    args.push("--", "-");
 
     const raw = await this.options.processRunner.run({
       command: this.options.command,
       args,
       cwd: input.workspacePath,
+      stdin: input.prompt,
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.signal !== undefined ? { signal: input.signal } : {}),
       env: buildBaseEnv(input),
