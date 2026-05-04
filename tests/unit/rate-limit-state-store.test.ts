@@ -46,7 +46,7 @@ describe("RateLimitStateStore", () => {
     }
   });
 
-  test("drops expired entries on load and rewrites the file", async () => {
+  test("filters out expired entries without rewriting the file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
 
     try {
@@ -61,6 +61,8 @@ describe("RateLimitStateStore", () => {
       await writer.pause("claude", past);
       await writer.pause("codex", future);
 
+      const beforeLoad = await readFile(filePath, "utf8");
+
       const reader = new RateLimitStateStore({
         filePath,
         now: () => 2_000,
@@ -70,10 +72,13 @@ describe("RateLimitStateStore", () => {
       assert.equal(active.has("claude"), false);
       assert.equal(active.get("codex"), future);
 
-      const onDisk = JSON.parse(await readFile(filePath, "utf8")) as {
+      const afterLoad = await readFile(filePath, "utf8");
+      assert.equal(afterLoad, beforeLoad);
+
+      const onDisk = JSON.parse(afterLoad) as {
         pauses: Record<string, number>;
       };
-      assert.deepEqual(Object.keys(onDisk.pauses), ["codex"]);
+      assert.deepEqual(Object.keys(onDisk.pauses).sort(), ["claude", "codex"]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

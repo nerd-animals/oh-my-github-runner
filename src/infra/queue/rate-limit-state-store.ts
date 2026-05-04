@@ -26,18 +26,11 @@ export class RateLimitStateStore {
     const state = await this.readState();
     const now = this.now();
     const active = new Map<string, number>();
-    let mutated = false;
 
     for (const [tool, pausedUntil] of Object.entries(state.pauses)) {
       if (pausedUntil > now) {
         active.set(tool, pausedUntil);
-      } else {
-        mutated = true;
       }
-    }
-
-    if (mutated) {
-      await this.writeState({ pauses: Object.fromEntries(active) });
     }
 
     return active;
