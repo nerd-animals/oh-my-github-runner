@@ -47,6 +47,13 @@ git reset --hard "$remote"
 # required for `npm run compile`.
 npm ci --silent
 npm run compile --silent
+# tsc can exit 0 without emitting the entrypoint (stale .tsbuildinfo,
+# project references gone wrong, type-only sources). Block restart so the
+# service does not loop on a missing main module.
+[ -f dist/src/index.js ] || {
+  echo "compile produced no entrypoint: dist/src/index.js" >&2
+  exit 1
+}
 
 sudo /bin/systemctl restart "$SERVICE"
 echo "Restarted $SERVICE; now at $remote."
