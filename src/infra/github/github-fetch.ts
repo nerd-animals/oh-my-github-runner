@@ -40,6 +40,20 @@ export interface GithubFetchOptions {
    * self-correcting check cycle.
    */
   cooldownMs?: number;
+  /**
+   * Max retries for transient errors (network-level throws and 5xx
+   * responses on 500/502/503/504). Total attempts = limit + 1. Default 2,
+   * so a flaky request gets up to 3 tries before surfacing. Rate-limit
+   * (429 / depleted-quota 403) has its own one-shot path and is not
+   * counted here. Permanent 4xx and 501 fall through unchanged.
+   */
+  transientRetryLimit?: number;
+  /**
+   * Base backoff (ms) for transient retries. Each attempt waits
+   * baseMs * 3^attempt — defaults 500ms / 1500ms with 2 retries, ~2s
+   * worst-case before the call surfaces.
+   */
+  transientBackoffBaseMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   fetchImpl?: typeof fetch;
@@ -50,6 +64,8 @@ interface ResolvedOptions {
   proactiveThreshold: number;
   inlineRetryThresholdMs: number;
   cooldownMs: number;
+  transientRetryLimit: number;
+  transientBackoffBaseMs: number;
   now: () => number;
   sleep: (ms: number) => Promise<void>;
   fetchImpl: typeof fetch;
@@ -58,6 +74,8 @@ interface ResolvedOptions {
 const DEFAULT_PROACTIVE_THRESHOLD = 500;
 const DEFAULT_INLINE_RETRY_THRESHOLD_MS = 60_000;
 const DEFAULT_COOLDOWN_MS = 30 * 60_000;
+const DEFAULT_TRANSIENT_RETRY_LIMIT = 2;
+const DEFAULT_TRANSIENT_BACKOFF_BASE_MS = 500;
 
 export interface GithubFetcher {
   request(url: string, init?: RequestInit): Promise<Response>;
@@ -73,6 +91,10 @@ export function createGithubFetcher(
     inlineRetryThresholdMs:
       options?.inlineRetryThresholdMs ?? DEFAULT_INLINE_RETRY_THRESHOLD_MS,
     cooldownMs: options?.cooldownMs ?? DEFAULT_COOLDOWN_MS,
+    transientRetryLimit:
+      options?.transientRetryLimit ?? DEFAULT_TRANSIENT_RETRY_LIMIT,
+    transientBackoffBaseMs:
+      options?.transientBackoffBaseMs ?? DEFAULT_TRANSIENT_BACKOFF_BASE_MS,
     now: options?.now ?? (() => Date.now()),
     sleep:
       options?.sleep ??
@@ -81,7 +103,7 @@ export function createGithubFetcher(
   };
 
   return {
-    request: (url, init) => doRequest(url, init, cfg, 0),
+    request: (url, init) => doRequest(url, init, cfg, 0, 0),
   };
 }
 
@@ -90,8 +112,34 @@ async function doRequest(
   init: RequestInit | undefined,
   cfg: ResolvedOptions,
   attempt: number,
+  transientAttempt: number,
 ): Promise<Response> {
-  const response = await cfg.fetchImpl(url, init ?? {});
+  // Network-level throws (DNS, ECONNRESET, TLS handshake, fetch abort)
+  // are indistinguishable from transient infrastructure failures from the
+  // caller's point of view, so they share the 5xx retry budget. Note: a
+  // POST that timed out at the network layer AFTER the server processed
+  // it may produce a duplicate on retry — the existing rate-limit retry
+  // path on line 110 has the same property and we accept that trade-off
+  // here for the same reason: cleanup reliability beats the rare dup.
+  let response: Response;
+  try {
+    response = await cfg.fetchImpl(url, init ?? {});
+  } catch (error) {
+    if (transientAttempt < cfg.transientRetryLimit) {
+      await cfg.sleep(transientBackoffMs(transientAttempt, cfg));
+      return doRequest(url, init, cfg, attempt, transientAttempt + 1);
+    }
+    throw error;
+  }
+
+  if (
+    isTransientServerError(response) &&
+    transientAttempt < cfg.transientRetryLimit
+  ) {
+    await cfg.sleep(transientBackoffMs(transientAttempt, cfg));
+    return doRequest(url, init, cfg, attempt, transientAttempt + 1);
+  }
+
   await maybeProactivePause(response, cfg);
 
   if (!isRateLimitResponse(response)) {
@@ -103,12 +151,27 @@ async function doRequest(
 
   if (retryAfterMs <= cfg.inlineRetryThresholdMs && attempt === 0) {
     await cfg.sleep(Math.max(retryAfterMs, 0));
-    return doRequest(url, init, cfg, attempt + 1);
+    return doRequest(url, init, cfg, attempt + 1, transientAttempt);
   }
 
   const pausedUntil = cfg.now() + Math.max(retryAfterMs, cfg.cooldownMs);
   await safePause(cfg.pauseSink, pausedUntil);
   throw new GithubRateLimitedError({ kind, retryAfterMs, pausedUntil });
+}
+
+// 500, 502, 503, 504 are treated as transient. 501 (Not Implemented) is
+// permanent server-side and not retried. Other 5xx codes (e.g. 507/508)
+// are uncommon enough on the GitHub API surface to ignore.
+function isTransientServerError(response: Response): boolean {
+  const s = response.status;
+  return s === 500 || s === 502 || s === 503 || s === 504;
+}
+
+function transientBackoffMs(
+  transientAttempt: number,
+  cfg: ResolvedOptions,
+): number {
+  return cfg.transientBackoffBaseMs * 3 ** transientAttempt;
 }
 
 async function maybeProactivePause(
