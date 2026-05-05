@@ -6,10 +6,11 @@ import { getStrategy, hasStrategy } from "../strategies/index.js";
 export interface EnqueueServiceDependencies {
   queueStore: QueueStore;
   /**
-   * Optional hook for taking action on a running task being superseded.
-   * Defaults to markSuperseded only — the daemon supplies an
-   * abort-aware handler in production so a running run gets
-   * cancelled in addition to having its record marked.
+   * Optional hook fired for each queued conflict on the same source.
+   * Defaults to plain `markSuperseded`. Production wires the daemon so
+   * the same call also fires the `onSuperseded` notification (e.g.
+   * sticky-comment update). Running tasks are never passed here —
+   * supersede is queued-only and an in-flight task runs to completion.
    */
   onSupersede?: (oldTaskId: string, newTaskId: string) => Promise<void>;
 }
@@ -30,7 +31,7 @@ export class EnqueueService {
     const newTask = await this.dependencies.queueStore.enqueue(input);
 
     if (newStrategy.policies.supersedeOnSameSource) {
-      const conflicts = await this.dependencies.queueStore.findActiveBySource(
+      const conflicts = await this.dependencies.queueStore.findQueuedBySource(
         input.repo,
         input.source,
       );

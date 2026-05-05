@@ -84,8 +84,6 @@ const DEFAULT_STALE_RUNNING_CUTOFF_MS = 30 * 60 * 1000;
 interface ActiveTask {
   promise: Promise<void>;
   abort: AbortController;
-  /** Task id of the request that superseded this one, if any. */
-  supersededBy: string | null;
 }
 
 export class RunnerDaemon {
@@ -186,7 +184,6 @@ export class RunnerDaemon {
       const active: ActiveTask = {
         promise: Promise.resolve(),
         abort,
-        supersededBy: null,
       };
       active.promise = this.runTask(startedTask, active).finally(() => {
         this.activeTasks.delete(task.taskId);
@@ -196,38 +193,38 @@ export class RunnerDaemon {
   }
 
   /**
-   * Supersede a queued- or running-status task. If the task is currently
-   * running, its AbortSignal is fired so the strategy can unwind cleanly;
-   * the queue record is then moved to "superseded" with `supersededBy` set.
-   * No-op if the task isn't active anymore (already completed, etc).
+   * Supersede a queued task. Persists `supersededBy` and fires the
+   * `onSuperseded` notification so observers (e.g. sticky comment) reflect
+   * the new state. Running tasks are intentionally not aborted — supersede
+   * is queued-only and an in-flight task runs to completion. If a race
+   * moves the task out of queued between caller and persist, the
+   * markSuperseded error is logged and the notification is skipped.
    */
   async supersede(oldTaskId: string, newTaskId: string): Promise<void> {
-    const active = this.activeTasks.get(oldTaskId);
-    if (active !== undefined) {
-      active.supersededBy = newTaskId;
-      active.abort.abort();
-      // Persist the supersede status now so observers see it immediately;
-      // runTask will skip its own completeTask call when supersededBy is set.
-      try {
-        await this.dependencies.queueStore.markSuperseded(
-          oldTaskId,
-          newTaskId,
-        );
-      } catch (error) {
-        this.warn(
-          `[daemon] markSuperseded(running) threw: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-      return;
-    }
-    // Not running on this daemon — just persist the supersede status.
+    let superseded: TaskRecord;
     try {
-      await this.dependencies.queueStore.markSuperseded(oldTaskId, newTaskId);
+      superseded = await this.dependencies.queueStore.markSuperseded(
+        oldTaskId,
+        newTaskId,
+      );
     } catch (error) {
       this.warn(
         `[daemon] markSuperseded(queued) threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return;
+    }
+
+    const onSuperseded = this.dependencies.notifications?.onSuperseded;
+    if (onSuperseded === undefined) {
+      return;
+    }
+    try {
+      await onSuperseded(superseded, newTaskId);
+    } catch (error) {
+      this.warn(
+        `[daemon] notifyTaskSuperseded threw: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -378,30 +375,6 @@ export class RunnerDaemon {
         errorSummary:
           error instanceof Error ? error.message : "unexpected daemon error",
       };
-    }
-
-    // If supersede fired while the run was in flight, the queue record
-    // has already been moved to "superseded" by daemon.supersede(). Skip
-    // completeTask (which expects to find the task in "running") and skip
-    // notifyTaskFailure — the strategy crash here is the abort, not a real
-    // failure.
-    if (active.supersededBy !== null) {
-      console.log(
-        `[daemon] superseded task=${task.taskId} by=${active.supersededBy}`,
-      );
-      const onSuperseded = this.dependencies.notifications?.onSuperseded;
-      if (onSuperseded !== undefined) {
-        try {
-          await onSuperseded(task, active.supersededBy);
-        } catch (error) {
-          this.warn(
-            `[daemon] notifyTaskSuperseded threw: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
-      }
-      return;
     }
 
     if (result.status === "rate_limited") {

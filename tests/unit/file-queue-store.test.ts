@@ -37,36 +37,49 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("findActiveBySource returns queued and running tasks matching the source", async () => {
+  test("findQueuedBySource returns only queued tasks matching the source and excludes running tasks", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
       const store = new FileQueueStore({ dataDir: root });
-      const same = await store.enqueue({
+      const queuedSame = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 100 },
         instructionId: "issue-implement",
         requestedBy: "test",
       });
-      const different = await store.enqueue({
+      const runningSame = await store.enqueue({
+        repo: { owner: "octo", name: "repo" },
+        source: { kind: "issue", number: 100 },
+        instructionId: "issue-implement",
+        requestedBy: "test",
+      });
+      const queuedDifferent = await store.enqueue({
         repo: { owner: "octo", name: "repo" },
         source: { kind: "issue", number: 200 },
         instructionId: "issue-implement",
         requestedBy: "test",
       });
-      // Move `same` to running.
-      await store.startTask(same.taskId);
+      await store.startTask(runningSame.taskId);
 
-      const matches = await store.findActiveBySource(
+      const matches = await store.findQueuedBySource(
         { owner: "octo", name: "repo" },
         { kind: "issue", number: 100 },
       );
 
       assert.deepEqual(
-        matches.map((task) => task.taskId).sort(),
-        [same.taskId].sort(),
+        matches.map((task) => task.taskId),
+        [queuedSame.taskId],
       );
-      assert.notEqual(matches[0]?.taskId, different.taskId);
+      assert.equal(
+        matches.some((task) => task.taskId === runningSame.taskId),
+        false,
+        "running task on the same source must not be returned",
+      );
+      assert.equal(
+        matches.some((task) => task.taskId === queuedDifferent.taskId),
+        false,
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -99,7 +112,7 @@ describe("FileQueueStore", () => {
     }
   });
 
-  test("markSuperseded works on a running task too", async () => {
+  test("markSuperseded rejects a running task and leaves it in running/", async () => {
     const root = await mkdtemp(join(tmpdir(), "queue-store-"));
 
     try {
@@ -112,14 +125,19 @@ describe("FileQueueStore", () => {
       });
       await store.startTask(old.taskId);
 
-      const result = await store.markSuperseded(old.taskId, "task_new");
+      await assert.rejects(
+        () => store.markSuperseded(old.taskId, "task_new"),
+        /not in queued status/i,
+      );
 
-      assert.equal(result.status, "superseded");
-      assert.equal(result.supersededBy, "task_new");
-      assert.deepEqual(await readdir(join(root, "running")), []);
-      assert.deepEqual(await readdir(join(root, "superseded")), [
+      assert.deepEqual(await readdir(join(root, "running")), [
         `${old.taskId}.json`,
       ]);
+      // Nothing should have moved into superseded/.
+      const supersededEntries = await readdir(
+        join(root, "superseded"),
+      ).catch(() => [] as string[]);
+      assert.deepEqual(supersededEntries, []);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

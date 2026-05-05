@@ -139,36 +139,30 @@ export class FileQueueStore implements QueueStore {
     return task;
   }
 
-  async findActiveBySource(
+  async findQueuedBySource(
     repo: RepoRef,
     source: SourceRef,
   ): Promise<TaskRecord[]> {
     const queued = await this.listInStatus("queued");
-    const running = await this.listInStatus("running");
-    return [...queued, ...running].filter((task) =>
-      hasSameSource(task, { repo, source }),
-    );
+    return queued.filter((task) => hasSameSource(task, { repo, source }));
   }
 
   async markSuperseded(
     taskId: string,
     supersededBy: string,
   ): Promise<TaskRecord> {
-    for (const status of ["queued", "running"] as const) {
-      const task = await this.tryReadTaskFile(status, taskId);
-      if (task === undefined) {
-        continue;
-      }
-      task.status = "superseded";
-      task.supersededBy = supersededBy;
-      task.finishedAt = new Date().toISOString();
-      delete task.errorSummary;
-      await this.relocate(task, status);
-      return task;
+    const task = await this.tryReadTaskFile("queued", taskId);
+    if (task === undefined) {
+      throw new Error(
+        `Cannot supersede task '${taskId}': not in queued status`,
+      );
     }
-    throw new Error(
-      `Cannot supersede task '${taskId}': not in queued or running status`,
-    );
+    task.status = "superseded";
+    task.supersededBy = supersededBy;
+    task.finishedAt = new Date().toISOString();
+    delete task.errorSummary;
+    await this.relocate(task, "queued");
+    return task;
   }
 
   async recoverRunningTasks(errorSummary: string): Promise<void> {
