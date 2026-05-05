@@ -10,6 +10,7 @@ REPO_ROOT=${REPO_ROOT:-/home/ubuntu/runner-deploy}
 SERVICE=${SERVICE:-oh-my-github-runner.service}
 RUNNING_DIR="$REPO_ROOT/var/queue/running"
 POLL_SEC=${RUNNER_DEPLOY_POLL_SEC:-5}
+MAX_WAIT_SEC=${RUNNER_DEPLOY_MAX_WAIT_SEC:-120}
 
 cd "$REPO_ROOT"
 
@@ -25,10 +26,13 @@ fi
 
 echo "Updating $current -> $remote"
 
-# Wait for running tasks to drain before reset/build/restart. If we restarted
-# while tasks are running, recoverRunningTasks() would mark them as failed.
-# Run this BEFORE git reset so disk and memory stay aligned at the old SHA;
-# if the workflow gets killed mid-wait, the next push retries naturally.
+# Wait briefly for running tasks to drain before reset/build/restart. If a
+# task is still running after MAX_WAIT_SEC, abandon this deploy with non-zero
+# exit and leave the service on the old SHA: the next push (or manual
+# workflow_dispatch) re-runs against the latest origin/main. This avoids the
+# old failure mode where an open-ended wait got killed by the GitHub Actions
+# job timeout (15m) mid-restart.
+start_ts=$(date +%s)
 while true; do
   if [ -d "$RUNNING_DIR" ]; then
     running=$(find "$RUNNING_DIR" -mindepth 1 -maxdepth 1 -type f -name '*.json' 2>/dev/null | wc -l)
@@ -38,7 +42,12 @@ while true; do
   if [ "$running" -eq 0 ]; then
     break
   fi
-  echo "Waiting: $running task(s) still running"
+  elapsed=$(( $(date +%s) - start_ts ))
+  if [ "$elapsed" -ge "$MAX_WAIT_SEC" ]; then
+    echo "Drain timeout after ${elapsed}s; ${running} task(s) still running; leaving service unchanged." >&2
+    exit 1
+  fi
+  echo "Waiting: $running task(s) still running (${elapsed}s/${MAX_WAIT_SEC}s)"
   sleep "$POLL_SEC"
 done
 
