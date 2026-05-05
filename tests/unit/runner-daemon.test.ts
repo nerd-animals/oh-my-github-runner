@@ -95,6 +95,7 @@ describe("RunnerDaemon", () => {
     const calls: string[] = [];
     let currentTask = createTask("queued");
     const pauses: Array<{ tool: string; pausedUntil: number }> = [];
+    const notifyOrder: string[] = [];
 
     const daemon = new RunnerDaemon({
       queueStore: {
@@ -141,10 +142,17 @@ describe("RunnerDaemon", () => {
         store: {
           loadActivePauses: async () => new Map(),
           pause: async (tool, pausedUntil) => {
+            calls.push(`pause:${tool}`);
             pauses.push({ tool, pausedUntil });
           },
         },
         cooldownMs: 60_000,
+      },
+      notifications: {
+        onRateLimited: async () => {
+          notifyOrder.push("notify");
+          calls.push("notify:rate-limited");
+        },
       },
       clock: { now: () => 5_000_000 },
     });
@@ -157,6 +165,25 @@ describe("RunnerDaemon", () => {
     ]);
     assert.ok(calls.includes("revert:task_1"));
     assert.ok(calls.some((c) => c.startsWith("log:task_1:rate-limited")));
+
+    // Critical ordering invariant (issue #109): the tool pause must hit disk
+    // before the task reappears in queued/, otherwise a racing tick will
+    // re-dispatch the same task and burn another 429. GitHub notification is
+    // slow and must stay at the tail so it never widens that window.
+    const pauseIdx = calls.indexOf("pause:claude");
+    const revertIdx = calls.indexOf("revert:task_1");
+    const notifyIdx = calls.indexOf("notify:rate-limited");
+    assert.ok(pauseIdx !== -1, "expected store.pause to be called");
+    assert.ok(revertIdx !== -1, "expected revertToQueued to be called");
+    assert.ok(notifyIdx !== -1, "expected onRateLimited to be called");
+    assert.ok(
+      pauseIdx < revertIdx,
+      `pause must precede revertToQueued, got pause=${pauseIdx} revert=${revertIdx} (calls=${calls.join(",")})`,
+    );
+    assert.ok(
+      revertIdx < notifyIdx,
+      `revertToQueued must precede onRateLimited, got revert=${revertIdx} notify=${notifyIdx} (calls=${calls.join(",")})`,
+    );
   });
 
   test("notifies task failure when execution throws a non rate-limit error", async () => {
