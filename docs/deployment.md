@@ -185,6 +185,19 @@ commit (e.g., a manual `git pull` ran first), the workflow logs
 `Already at <sha>; nothing to deploy.` and exits 0. The service is
 left untouched.
 
+After `systemctl restart`, the script polls `systemctl is-active` for up to
+~15s and requires multiple consecutive `active` samples before declaring
+success — this catches the case where the new daemon throws on startup
+and systemd silently flips into a `Restart=always` crashloop. On failure
+the script prints the last 80 lines of `journalctl -u
+oh-my-github-runner.service` to stderr and exits non-zero, turning the
+GitHub Actions run red. Both probes run as the `ubuntu` user without sudo
+(journal access via group `adm`); the sudoers grant above is unchanged.
+Tune the probe via `RUNNER_DEPLOY_VERIFY_INTERVAL_SEC`,
+`RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT`, and
+`RUNNER_DEPLOY_VERIFY_STABLE_COUNT` if the defaults clash with a slower
+host.
+
 ## Working on the runner from the VM
 
 ```
