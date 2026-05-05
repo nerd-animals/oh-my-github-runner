@@ -335,7 +335,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.deepEqual(result.toolNames, ["codex"]);
     // Only personas ran; publisher must not have been invoked.
     assert.equal(aiCalls.length, 4);
     assert.equal(postedIssueComments.length, 0);
@@ -359,7 +359,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.deepEqual(result.toolNames, ["codex"]);
     assert.equal(postedIssueComments.length, 0);
   });
 
@@ -399,5 +399,99 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
     );
     assert.equal(aiCalls.length, 0);
     assert.equal(postedIssueComments.length, 0);
+  });
+
+  test("passes a stable persona/<id> stepKey to each persona ai.run (#137)", async () => {
+    const { tk, aiCalls } = makeToolkit({ resultsByPersona: ALL_SUCCEEDED });
+
+    await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    const personaStepKeys = aiCalls
+      .filter((call) => {
+        const frag = call.prompt.find(
+          (f) => f.kind === "file" && f.path.startsWith("personas/"),
+        );
+        return (
+          frag?.kind === "file" && frag.path !== "personas/publisher"
+        );
+      })
+      .map((call) => call.stepKey)
+      .sort();
+
+    assert.deepEqual(personaStepKeys, [
+      "persona/architect",
+      "persona/maintenance",
+      "persona/ops",
+      "persona/test",
+    ]);
+  });
+
+  test("passes stepKey 'publisher' to the publisher ai.run (#137)", async () => {
+    const { tk, aiCalls } = makeToolkit({ resultsByPersona: ALL_SUCCEEDED });
+
+    await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    const publisherCall = aiCalls.find((call) => {
+      const frag = call.prompt.find(
+        (f) => f.kind === "file" && f.path === "personas/publisher",
+      );
+      return frag !== undefined;
+    });
+    assert.ok(publisherCall, "expected a publisher ai.run call");
+    assert.equal(publisherCall.stepKey, "publisher");
+  });
+
+  test("aggregates multiple rate-limited tools across personas into toolNames", async () => {
+    // architect runs on claude, ops/test/maintenance run on codex. Both
+    // tools 429 in the same parallel run → daemon must pause both.
+    const { tk } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "rate_limited", toolName: "claude" },
+        test: { kind: "rate_limited", toolName: "codex" },
+        ops: { kind: "succeeded", stdout: "ops findings" },
+        maintenance: { kind: "succeeded", stdout: "maintenance findings" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.deepEqual([...result.toolNames].sort(), ["claude", "codex"]);
+  });
+
+  test("does not duplicate a tool when multiple personas on it rate-limit", async () => {
+    // test + ops + maintenance all run on codex; if all three 429, the
+    // toolName should appear once, not three times.
+    const { tk } = makeToolkit({
+      resultsByPersona: {
+        architect: { kind: "succeeded", stdout: "architect findings" },
+        test: { kind: "rate_limited", toolName: "codex" },
+        ops: { kind: "rate_limited", toolName: "codex" },
+        maintenance: { kind: "rate_limited", toolName: "codex" },
+      },
+    });
+
+    const result = await issueInitialReviewStrategy.run(
+      task,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.equal(result.status, "rate_limited");
+    if (result.status !== "rate_limited") return;
+    assert.deepEqual([...result.toolNames], ["codex"]);
   });
 });

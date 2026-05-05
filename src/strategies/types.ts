@@ -48,6 +48,20 @@ export interface AiRunOptions {
    * supports it.
    */
   outputSchema?: object;
+  /**
+   * Opt-in cache key for this AI step within the task. When set AND a
+   * CheckpointStore is wired into the toolkit, the toolkit:
+   *   - reads the prior result from disk before invoking the runner
+   *     and returns it on a fingerprint match (skipping the AI call),
+   *   - writes the new result to disk on success.
+   * Must be deterministic across retries of the same task (e.g.
+   * `persona/architect`); UUIDs or timestamps defeat the cache. Strategy
+   * authors do NOT manage the fingerprint — the toolkit derives it from
+   * the rendered prompt + tool + intensity + allow/disallow lists +
+   * outputSchema, so a context change between retries (e.g. issue body
+   * edited) automatically invalidates a stale entry.
+   */
+  stepKey?: string;
 }
 
 export type AiRunResult =
@@ -111,7 +125,14 @@ export interface Toolkit {
 export type ExecuteResult =
   | { status: "succeeded" }
   | { status: "failed"; errorSummary: string }
-  | { status: "rate_limited"; toolName: string };
+  /**
+   * One or more tools that the strategy hit a rate-limit on during this
+   * run. A single AI call always reports one tool, but a strategy that
+   * fans out parallel calls across multiple tools (e.g. issue-initial-
+   * review's claude+codex personas) can collect rate-limits from several
+   * tools in one shot. The daemon pauses every tool listed here.
+   */
+  | { status: "rate_limited"; toolNames: readonly string[] };
 
 export interface StrategyPolicies {
   /**

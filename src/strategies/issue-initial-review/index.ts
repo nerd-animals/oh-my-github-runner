@@ -28,8 +28,13 @@ export const issueInitialReviewStrategy: Strategy = {
     signal.throwIfAborted();
     const settled = await Promise.all(
       PERSONAS.map(async (persona) => {
+        // stepKey opts this call into the toolkit checkpoint cache (#137):
+        // when one persona 429s and the daemon retries the task ~30 min
+        // later, the personas that already succeeded are served from disk
+        // and only the still-rate-limited one re-invokes its runner.
         const result = await tk.ai.run({
           tool: TOOL_MAP[persona.id],
+          stepKey: `persona/${persona.id}`,
           prompt: [
             { kind: "file", path: "_common/work-rules" },
             { kind: "file", path: "_common/tone" },
@@ -51,10 +56,17 @@ export const issueInitialReviewStrategy: Strategy = {
 
     // rate_limited wins over failed: the queue retries the whole task once
     // every tool is available again, so we surface that signal first.
+    // Personas run in parallel across multiple tools; collect every tool
+    // that rate-limited so the daemon pauses all of them and the next
+    // retry doesn't immediately burn another 429 on the still-hot tool.
+    const rateLimitedTools = new Set<string>();
     for (const { result } of settled) {
       if (result.kind === "rate_limited") {
-        return mapAiFailure(result);
+        rateLimitedTools.add(result.toolName);
       }
+    }
+    if (rateLimitedTools.size > 0) {
+      return { status: "rate_limited", toolNames: [...rateLimitedTools] };
     }
     for (const { result } of settled) {
       if (result.kind === "failed") {

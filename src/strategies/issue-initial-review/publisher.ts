@@ -33,6 +33,7 @@ export async function runPublisher(
 
   const result = await tk.ai.run({
     tool: PUBLISHER_TOOL,
+    stepKey: "publisher",
     prompt: [
       { kind: "file", path: "_common/work-rules" },
       { kind: "file", path: "_common/tone" },

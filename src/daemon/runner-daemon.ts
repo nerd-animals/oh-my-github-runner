@@ -1,3 +1,4 @@
+import type { CheckpointStore } from "../domain/ports/checkpoint-store.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
 import type { TaskRecord } from "../domain/task.js";
@@ -8,6 +9,17 @@ import type { ExecuteResult } from "../strategies/types.js";
 export interface RunnerDaemonDependencies {
   queueStore: QueueStore;
   schedulerService: SchedulerService;
+  /**
+   * Optional cache for AI step results (#137). When wired:
+   *   - drop(taskId) is called on every terminal transition (succeeded /
+   *     failed / superseded), so a re-enqueued task starts with a clean
+   *     slate;
+   *   - sweep(activeTaskIds) is called at startup to remove orphan
+   *     directories left behind by crashes.
+   * rate_limited transitions intentionally leave the cache in place so
+   * the next retry can serve cache hits.
+   */
+  checkpointStore?: CheckpointStore;
   // Runs a task to completion. The daemon owns when to call this; the
   // composition root supplies the implementation (typically `getStrategy(...)
   // .run(task, toolkitFactory.create(task), signal)`). Tests inject a stub.
@@ -119,19 +131,31 @@ export class RunnerDaemon {
     await this.dependencies.queueStore.recoverRunningTasks(
       "daemon interrupted before completion",
     );
-    const cleanupOrphanWorkspaces =
-      this.dependencies.janitor?.cleanupOrphanWorkspaces;
-    if (cleanupOrphanWorkspaces !== undefined) {
-      try {
+
+    // Active set is shared between workspace cleanup and checkpoint sweep:
+    // both want "tasks the daemon will still touch" (queued + running). It
+    // is computed AFTER recoverRunningTasks so any tasks just rolled to
+    // failed are correctly treated as orphans.
+    let activeTaskIds: ReadonlySet<string> | undefined;
+    const ensureActive = async (): Promise<ReadonlySet<string>> => {
+      if (activeTaskIds === undefined) {
         const tasks = await this.dependencies.queueStore.listTasks();
-        const active = new Set(
+        activeTaskIds = new Set(
           tasks
             .filter(
               (task) => task.status === "queued" || task.status === "running",
             )
             .map((task) => task.taskId),
         );
-        const removed = await cleanupOrphanWorkspaces(active);
+      }
+      return activeTaskIds;
+    };
+
+    const cleanupOrphanWorkspaces =
+      this.dependencies.janitor?.cleanupOrphanWorkspaces;
+    if (cleanupOrphanWorkspaces !== undefined) {
+      try {
+        const removed = await cleanupOrphanWorkspaces(await ensureActive());
         if (removed > 0) {
           console.log(
             `[daemon] cleanupOrphanWorkspaces removed ${removed} orphan workspace dir(s)`,
@@ -145,6 +169,26 @@ export class RunnerDaemon {
         );
       }
     }
+
+    if (this.dependencies.checkpointStore !== undefined) {
+      try {
+        const dropped = await this.dependencies.checkpointStore.sweep(
+          await ensureActive(),
+        );
+        if (dropped > 0) {
+          console.log(
+            `[daemon] checkpoint sweep dropped ${dropped} orphan dir(s)`,
+          );
+        }
+      } catch (error) {
+        this.warn(
+          `[daemon] checkpoint sweep threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     await this.dependencies.logStore.cleanupExpired();
     await this.maybePrune(true);
   }
@@ -216,6 +260,10 @@ export class RunnerDaemon {
       return;
     }
 
+    // Terminal transition: drop the old task's AI checkpoint cache. The
+    // replacement task has its own taskId and will start with no cache.
+    await this.dropCheckpoints(oldTaskId);
+
     const onSuperseded = this.dependencies.notifications?.onSuperseded;
     if (onSuperseded === undefined) {
       return;
@@ -281,6 +329,7 @@ export class RunnerDaemon {
         console.warn(
           `[daemon] recovered stale running task=${task.taskId} from=running to=failed startedAt=${task.startedAt} ageMs=${ageMs}`,
         );
+        await this.dropCheckpoints(task.taskId);
       } catch (error) {
         this.warn(
           `[daemon] sweepStaleRunning completeTask failed task=${task.taskId} from=running to=failed: ${
@@ -378,7 +427,7 @@ export class RunnerDaemon {
     }
 
     if (result.status === "rate_limited") {
-      await this.handleRateLimit(task, result.toolName);
+      await this.handleRateLimit(task, result.toolNames);
       return;
     }
 
@@ -432,22 +481,36 @@ export class RunnerDaemon {
         // logStore failure is non-fatal; daemon must keep going.
       }
     }
+
+    // Terminal transition: drop the task's AI checkpoint cache. rate_limited
+    // returns earlier (above) and intentionally skips this — the next retry
+    // is supposed to reuse the cache.
+    await this.dropCheckpoints(task.taskId);
   }
 
   private async handleRateLimit(
     task: TaskRecord,
-    toolName: string,
+    toolNames: readonly string[],
   ): Promise<void> {
     // Order matters: tick() reads pausedTools (state.json) and queued/ (task
     // files) independently. If the task reappears in queued/ before the pause
     // is on disk, a racing tick re-dispatches it and burns another 429
-    // (issue #109). Pause first, requeue second; GitHub notification is slow
-    // and stays at the tail so it never widens the critical-path window.
+    // (issue #109). Pause every rate-limited tool first, requeue second;
+    // GitHub notification is slow and stays at the tail so it never widens
+    // the critical-path window.
+    //
+    // toolNames may include several entries when a strategy fans out
+    // parallel AI calls (e.g. issue-initial-review's claude+codex personas)
+    // and more than one tool 429'd in the same run. All of them must be
+    // paused before the task goes back into queued/, otherwise the next
+    // tick will dispatch the still-unpaused tool again.
     const store = this.dependencies.rateLimit?.store;
     let pausedUntil: number | undefined;
-    if (store !== undefined) {
+    if (store !== undefined && toolNames.length > 0) {
       pausedUntil = this.now() + this.rateLimitCooldownMs;
-      await store.pause(toolName, pausedUntil);
+      for (const toolName of toolNames) {
+        await store.pause(toolName, pausedUntil);
+      }
     }
 
     try {
@@ -467,17 +530,19 @@ export class RunnerDaemon {
       }
     }
 
+    const toolList = toolNames.join(",");
     if (pausedUntil !== undefined) {
+      const pausedUntilIso = new Date(pausedUntil).toISOString();
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+        `[daemon] rate-limited task=${task.taskId} tools=${toolList} pausedUntil=${pausedUntilIso}`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
-        `rate-limited; paused tool '${toolName}' until ${new Date(pausedUntil).toISOString()}`,
+        `rate-limited; paused tools [${toolList}] until ${pausedUntilIso}`,
       );
     } else {
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} tool=${toolName} (no state store)`,
+        `[daemon] rate-limited task=${task.taskId} tools=${toolList} (no state store)`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
@@ -496,6 +561,28 @@ export class RunnerDaemon {
           }`,
         );
       }
+    }
+  }
+
+  /**
+   * Best-effort cleanup of a task's AI checkpoint cache on terminal
+   * transition. No-op when no checkpointStore is wired. Failures are
+   * logged and swallowed: the task is already terminal in the queue, so a
+   * leftover cache directory is at worst disk noise that startup sweep
+   * picks up next time.
+   */
+  private async dropCheckpoints(taskId: string): Promise<void> {
+    if (this.dependencies.checkpointStore === undefined) {
+      return;
+    }
+    try {
+      await this.dependencies.checkpointStore.drop(taskId);
+    } catch (error) {
+      this.warn(
+        `[daemon] checkpoint drop failed task=${taskId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 

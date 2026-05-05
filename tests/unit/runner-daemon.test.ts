@@ -129,7 +129,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => {
         calls.push("execute");
-        return { status: "rate_limited", toolName: "claude" };
+        return { status: "rate_limited", toolNames: ["claude"] };
       },
       logStore: {
         write: async (taskId, message) => {
@@ -276,7 +276,7 @@ describe("RunnerDaemon", () => {
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       toolsForTask: stubToolsForTask,
-      runStrategy: async () => ({ status: "rate_limited", toolName: "claude" }),
+      runStrategy: async () => ({ status: "rate_limited", toolNames: ["claude"] }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -444,7 +444,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "rate_limited",
-        toolName: "claude",
+        toolNames: ["claude"],
       }),
       logStore: {
         write: async () => {},
@@ -882,7 +882,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "rate_limited",
-        toolName: "claude",
+        toolNames: ["claude"],
       }),
       logStore: {
         write: async (taskId, message) => {
@@ -917,5 +917,258 @@ describe("RunnerDaemon", () => {
       ),
       `expected logStore write for revertToQueued failure, got: ${JSON.stringify(logCalls)}`,
     );
+  });
+
+  describe("checkpoint cleanup", () => {
+    interface CheckpointSpy {
+      drops: string[];
+      sweeps: Array<readonly string[]>;
+      store: {
+        read: () => Promise<undefined>;
+        write: () => Promise<void>;
+        drop: (taskId: string) => Promise<void>;
+        sweep: (active: ReadonlySet<string>) => Promise<number>;
+      };
+    }
+
+    function makeCheckpointSpy(): CheckpointSpy {
+      const spy: CheckpointSpy = {
+        drops: [],
+        sweeps: [],
+        store: {
+          read: async () => undefined,
+          write: async () => {},
+          drop: async (taskId: string) => {
+            spy.drops.push(taskId);
+          },
+          sweep: async (active: ReadonlySet<string>) => {
+            spy.sweeps.push([...active].sort());
+            return 0;
+          },
+        },
+      };
+      return spy;
+    }
+
+    test("drops the task's checkpoint on a succeeded transition", async () => {
+      const spy = makeCheckpointSpy();
+      let currentTask = createTask("queued");
+
+      const daemon = new RunnerDaemon({
+        queueStore: {
+          enqueue: async () => currentTask,
+          listTasks: async () => [currentTask],
+          getTask: async () => currentTask,
+          startTask: async (taskId) => {
+            currentTask = {
+              ...currentTask,
+              status: "running",
+              startedAt: "2026-05-05T00:01:00.000Z",
+            };
+            void taskId;
+            return currentTask;
+          },
+          completeTask: async (_id, input) => {
+            currentTask = { ...currentTask, status: input.status };
+            return currentTask;
+          },
+          revertToQueued: async () => currentTask,
+          findQueuedBySource: async () => [],
+          markSuperseded: async () => {
+            throw new Error("markSuperseded not exercised in this test");
+          },
+          recoverRunningTasks: async () => {},
+          pruneTerminalTasks: async () => 0,
+        },
+        schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+        toolsForTask: stubToolsForTask,
+        runStrategy: async () => ({ status: "succeeded" }),
+        logStore: { write: async () => {}, cleanupExpired: async () => {} },
+        pollIntervalMs: 10,
+        checkpointStore: spy.store,
+      });
+
+      await daemon.tick();
+      await daemon.waitForIdle();
+
+      assert.deepEqual(spy.drops, ["task_1"]);
+    });
+
+    test("drops the task's checkpoint on a failed transition", async () => {
+      const spy = makeCheckpointSpy();
+      let currentTask = createTask("queued");
+
+      const daemon = new RunnerDaemon({
+        queueStore: {
+          enqueue: async () => currentTask,
+          listTasks: async () => [currentTask],
+          getTask: async () => currentTask,
+          startTask: async (taskId) => {
+            currentTask = {
+              ...currentTask,
+              status: "running",
+              startedAt: "2026-05-05T00:01:00.000Z",
+            };
+            void taskId;
+            return currentTask;
+          },
+          completeTask: async (_id, input) => {
+            currentTask = { ...currentTask, status: input.status };
+            return currentTask;
+          },
+          revertToQueued: async () => currentTask,
+          findQueuedBySource: async () => [],
+          markSuperseded: async () => {
+            throw new Error("markSuperseded not exercised in this test");
+          },
+          recoverRunningTasks: async () => {},
+          pruneTerminalTasks: async () => 0,
+        },
+        schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+        toolsForTask: stubToolsForTask,
+        runStrategy: async () => {
+          throw new Error("strategy blew up");
+        },
+        logStore: { write: async () => {}, cleanupExpired: async () => {} },
+        pollIntervalMs: 10,
+        checkpointStore: spy.store,
+      });
+
+      await daemon.tick();
+      await daemon.waitForIdle();
+
+      assert.deepEqual(spy.drops, ["task_1"]);
+    });
+
+    test("does NOT drop the checkpoint on a rate_limited transition", async () => {
+      const spy = makeCheckpointSpy();
+      let currentTask = createTask("queued");
+
+      const daemon = new RunnerDaemon({
+        queueStore: {
+          enqueue: async () => currentTask,
+          listTasks: async () => [currentTask],
+          getTask: async () => currentTask,
+          startTask: async (taskId) => {
+            currentTask = {
+              ...currentTask,
+              status: "running",
+              startedAt: "2026-05-05T00:01:00.000Z",
+            };
+            void taskId;
+            return currentTask;
+          },
+          completeTask: async () => {
+            throw new Error("completeTask not called for rate_limited");
+          },
+          revertToQueued: async () => {
+            currentTask = { ...currentTask, status: "queued" };
+            return currentTask;
+          },
+          findQueuedBySource: async () => [],
+          markSuperseded: async () => {
+            throw new Error("markSuperseded not exercised in this test");
+          },
+          recoverRunningTasks: async () => {},
+          pruneTerminalTasks: async () => 0,
+        },
+        schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+        toolsForTask: stubToolsForTask,
+        runStrategy: async () => ({
+          status: "rate_limited",
+          toolNames: ["claude"],
+        }),
+        logStore: { write: async () => {}, cleanupExpired: async () => {} },
+        pollIntervalMs: 10,
+        rateLimit: {
+          store: {
+            loadActivePauses: async () => new Map(),
+            pause: async () => {},
+          },
+          cooldownMs: 60_000,
+        },
+        checkpointStore: spy.store,
+      });
+
+      await daemon.tick();
+      await daemon.waitForIdle();
+
+      assert.deepEqual(
+        spy.drops,
+        [],
+        "rate_limited must preserve the checkpoint cache for the next retry",
+      );
+    });
+
+    test("drops the old task's checkpoint when supersede succeeds", async () => {
+      const spy = makeCheckpointSpy();
+      const oldTask = { ...createTask("queued"), taskId: "task_old" };
+
+      const daemon = new RunnerDaemon({
+        queueStore: {
+          enqueue: async () => oldTask,
+          listTasks: async () => [oldTask],
+          getTask: async () => oldTask,
+          startTask: async () => oldTask,
+          completeTask: async () => oldTask,
+          revertToQueued: async () => oldTask,
+          findQueuedBySource: async () => [],
+          markSuperseded: async () => ({ ...oldTask, status: "superseded" }),
+          recoverRunningTasks: async () => {},
+          pruneTerminalTasks: async () => 0,
+        },
+        schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+        toolsForTask: stubToolsForTask,
+        runStrategy: async () => ({ status: "succeeded" }),
+        logStore: { write: async () => {}, cleanupExpired: async () => {} },
+        pollIntervalMs: 10,
+        checkpointStore: spy.store,
+      });
+
+      await daemon.supersede("task_old", "task_new");
+
+      assert.deepEqual(spy.drops, ["task_old"]);
+    });
+
+    test("sweeps orphan checkpoint dirs at initialize using queued+running ids", async () => {
+      const spy = makeCheckpointSpy();
+      const queuedTask = { ...createTask("queued"), taskId: "task_q" };
+      const runningTask = {
+        ...createTask("running"),
+        taskId: "task_r",
+        startedAt: "2026-05-05T00:01:00.000Z",
+      };
+      const succeededTask = {
+        ...createTask("succeeded"),
+        taskId: "task_s",
+        finishedAt: "2026-05-05T00:02:00.000Z",
+      };
+
+      const daemon = new RunnerDaemon({
+        queueStore: {
+          enqueue: async () => queuedTask,
+          listTasks: async () => [queuedTask, runningTask, succeededTask],
+          getTask: async () => queuedTask,
+          startTask: async () => queuedTask,
+          completeTask: async () => queuedTask,
+          revertToQueued: async () => queuedTask,
+          findQueuedBySource: async () => [],
+          markSuperseded: async () => queuedTask,
+          recoverRunningTasks: async () => {},
+          pruneTerminalTasks: async () => 0,
+        },
+        schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+        toolsForTask: stubToolsForTask,
+        runStrategy: async () => ({ status: "succeeded" }),
+        logStore: { write: async () => {}, cleanupExpired: async () => {} },
+        pollIntervalMs: 10,
+        checkpointStore: spy.store,
+      });
+
+      await daemon.initialize();
+
+      assert.equal(spy.sweeps.length, 1);
+      assert.deepEqual(spy.sweeps[0], ["task_q", "task_r"]);
+    });
   });
 });
