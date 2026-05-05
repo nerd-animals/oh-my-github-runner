@@ -507,7 +507,7 @@ describe("issueCommentReplyStrategy", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.deepEqual(result.toolNames, ["codex"]);
     assert.equal(postedIssueComments.length, 0);
   });
 

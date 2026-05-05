@@ -378,7 +378,7 @@ export class RunnerDaemon {
     }
 
     if (result.status === "rate_limited") {
-      await this.handleRateLimit(task, result.toolName);
+      await this.handleRateLimit(task, result.toolNames);
       return;
     }
 
@@ -436,18 +436,27 @@ export class RunnerDaemon {
 
   private async handleRateLimit(
     task: TaskRecord,
-    toolName: string,
+    toolNames: readonly string[],
   ): Promise<void> {
     // Order matters: tick() reads pausedTools (state.json) and queued/ (task
     // files) independently. If the task reappears in queued/ before the pause
     // is on disk, a racing tick re-dispatches it and burns another 429
-    // (issue #109). Pause first, requeue second; GitHub notification is slow
-    // and stays at the tail so it never widens the critical-path window.
+    // (issue #109). Pause every rate-limited tool first, requeue second;
+    // GitHub notification is slow and stays at the tail so it never widens
+    // the critical-path window.
+    //
+    // toolNames may include several entries when a strategy fans out
+    // parallel AI calls (e.g. issue-initial-review's claude+codex personas)
+    // and more than one tool 429'd in the same run. All of them must be
+    // paused before the task goes back into queued/, otherwise the next
+    // tick will dispatch the still-unpaused tool again.
     const store = this.dependencies.rateLimit?.store;
     let pausedUntil: number | undefined;
-    if (store !== undefined) {
+    if (store !== undefined && toolNames.length > 0) {
       pausedUntil = this.now() + this.rateLimitCooldownMs;
-      await store.pause(toolName, pausedUntil);
+      for (const toolName of toolNames) {
+        await store.pause(toolName, pausedUntil);
+      }
     }
 
     try {
@@ -467,17 +476,19 @@ export class RunnerDaemon {
       }
     }
 
+    const toolList = toolNames.join(",");
     if (pausedUntil !== undefined) {
+      const pausedUntilIso = new Date(pausedUntil).toISOString();
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
+        `[daemon] rate-limited task=${task.taskId} tools=${toolList} pausedUntil=${pausedUntilIso}`,
       );
       await this.dependencies.logStore.write(
         task.taskId,
-        `rate-limited; paused tool '${toolName}' until ${new Date(pausedUntil).toISOString()}`,
+        `rate-limited; paused tools [${toolList}] until ${pausedUntilIso}`,
       );
     } else {
       console.warn(
-        `[daemon] rate-limited task=${task.taskId} tool=${toolName} (no state store)`,
+        `[daemon] rate-limited task=${task.taskId} tools=${toolList} (no state store)`,
       );
       await this.dependencies.logStore.write(
         task.taskId,

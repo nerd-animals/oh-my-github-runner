@@ -335,7 +335,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.deepEqual(result.toolNames, ["codex"]);
     // Only personas ran; publisher must not have been invoked.
     assert.equal(aiCalls.length, 4);
     assert.equal(postedIssueComments.length, 0);
@@ -359,7 +359,7 @@ describe("issueInitialReviewStrategy (parallel personas + publisher)", () => {
 
     assert.equal(result.status, "rate_limited");
     if (result.status !== "rate_limited") return;
-    assert.equal(result.toolName, "codex");
+    assert.deepEqual(result.toolNames, ["codex"]);
     assert.equal(postedIssueComments.length, 0);
   });
 

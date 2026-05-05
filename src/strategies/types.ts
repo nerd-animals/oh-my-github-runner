@@ -111,7 +111,14 @@ export interface Toolkit {
 export type ExecuteResult =
   | { status: "succeeded" }
   | { status: "failed"; errorSummary: string }
-  | { status: "rate_limited"; toolName: string };
+  /**
+   * One or more tools that the strategy hit a rate-limit on during this
+   * run. A single AI call always reports one tool, but a strategy that
+   * fans out parallel calls across multiple tools (e.g. issue-initial-
+   * review's claude+codex personas) can collect rate-limits from several
+   * tools in one shot. The daemon pauses every tool listed here.
+   */
+  | { status: "rate_limited"; toolNames: readonly string[] };
 
 export interface StrategyPolicies {
   /**

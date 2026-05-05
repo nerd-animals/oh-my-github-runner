@@ -129,7 +129,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => {
         calls.push("execute");
-        return { status: "rate_limited", toolName: "claude" };
+        return { status: "rate_limited", toolNames: ["claude"] };
       },
       logStore: {
         write: async (taskId, message) => {
@@ -276,7 +276,7 @@ describe("RunnerDaemon", () => {
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       toolsForTask: stubToolsForTask,
-      runStrategy: async () => ({ status: "rate_limited", toolName: "claude" }),
+      runStrategy: async () => ({ status: "rate_limited", toolNames: ["claude"] }),
       logStore: {
         write: async () => {},
         cleanupExpired: async () => {},
@@ -444,7 +444,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "rate_limited",
-        toolName: "claude",
+        toolNames: ["claude"],
       }),
       logStore: {
         write: async () => {},
@@ -882,7 +882,7 @@ describe("RunnerDaemon", () => {
       toolsForTask: stubToolsForTask,
       runStrategy: async () => ({
         status: "rate_limited",
-        toolName: "claude",
+        toolNames: ["claude"],
       }),
       logStore: {
         write: async (taskId, message) => {
