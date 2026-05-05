@@ -28,8 +28,13 @@ export const issueInitialReviewStrategy: Strategy = {
     signal.throwIfAborted();
     const settled = await Promise.all(
       PERSONAS.map(async (persona) => {
+        // stepKey opts this call into the toolkit checkpoint cache (#137):
+        // when one persona 429s and the daemon retries the task ~30 min
+        // later, the personas that already succeeded are served from disk
+        // and only the still-rate-limited one re-invokes its runner.
         const result = await tk.ai.run({
           tool: TOOL_MAP[persona.id],
+          stepKey: `persona/${persona.id}`,
           prompt: [
             { kind: "file", path: "_common/work-rules" },
             { kind: "file", path: "_common/tone" },
