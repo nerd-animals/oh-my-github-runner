@@ -261,6 +261,135 @@ describe("createGithubFetcher", () => {
     );
   });
 
+  test("retries a network-level throw and succeeds", async () => {
+    const calls: string[] = [];
+    let i = 0;
+    const fetchImpl = (async (input: string | URL) => {
+      calls.push(typeof input === "string" ? input : String(input));
+      i += 1;
+      if (i === 1) {
+        throw new TypeError("fetch failed: ECONNRESET");
+      }
+      return makeResponse({ status: 200 });
+    }) as typeof fetch;
+
+    const slept: number[] = [];
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 10,
+      sleep: async (ms) => void slept.push(ms),
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(slept, [10]);
+  });
+
+  test("exhausts the transient retry budget on repeated network throws and rethrows the last error", async () => {
+    let i = 0;
+    const fetchImpl = (async () => {
+      i += 1;
+      throw new TypeError(`net throw #${i}`);
+    }) as typeof fetch;
+
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 1,
+      sleep: async () => {},
+      fetchImpl,
+    });
+    await assert.rejects(
+      fetcher.request("https://api/x"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, "net throw #3");
+        return true;
+      },
+    );
+    assert.equal(i, 3, "must attempt limit + 1 times before giving up");
+  });
+
+  test("retries a 503 response and returns the eventual success", async () => {
+    const { fetchImpl, calls } = makeFetchImpl([
+      { status: 503 },
+      { status: 502 },
+      { status: 200 },
+    ]);
+    const slept: number[] = [];
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 10,
+      sleep: async (ms) => void slept.push(ms),
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 3);
+    // attempt 0 backoff = 10, attempt 1 backoff = 30
+    assert.deepEqual(slept, [10, 30]);
+  });
+
+  test("returns the final 5xx unchanged when transient retries are exhausted", async () => {
+    const { fetchImpl, calls } = makeFetchImpl([
+      { status: 503 },
+      { status: 503 },
+      { status: 503 },
+    ]);
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 1,
+      sleep: async () => {},
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 503);
+    assert.equal(calls.length, 3);
+  });
+
+  test("does not retry 501 Not Implemented", async () => {
+    const { fetchImpl, calls } = makeFetchImpl([{ status: 501 }]);
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 1,
+      sleep: async () => {},
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 501);
+    assert.equal(calls.length, 1);
+  });
+
+  test("does not retry permanent 4xx like 404 or 422", async () => {
+    const { fetchImpl, calls } = makeFetchImpl([{ status: 404 }]);
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      sleep: async () => {},
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 404);
+    assert.equal(calls.length, 1);
+  });
+
+  test("503 followed by a 429 still triggers the rate-limit one-shot path", async () => {
+    const { fetchImpl, calls } = makeFetchImpl([
+      { status: 503 },
+      { status: 429, headers: { "retry-after": "1" } },
+      { status: 200 },
+    ]);
+    const fetcher = createGithubFetcher({
+      transientRetryLimit: 2,
+      transientBackoffBaseMs: 1,
+      inlineRetryThresholdMs: 60_000,
+      sleep: async () => {},
+      fetchImpl,
+    });
+    const res = await fetcher.request("https://api/x");
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 3);
+  });
+
   test("GithubRateLimitedError.pausedUntil is at least now+cooldown floor", async () => {
     const clock = makeClock(1_000_000);
     // Retry-After 0 means "we don't know"; fallback to cooldown floor.
