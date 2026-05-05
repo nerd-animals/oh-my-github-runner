@@ -438,6 +438,18 @@ export class RunnerDaemon {
     task: TaskRecord,
     toolName: string,
   ): Promise<void> {
+    // Order matters: tick() reads pausedTools (state.json) and queued/ (task
+    // files) independently. If the task reappears in queued/ before the pause
+    // is on disk, a racing tick re-dispatches it and burns another 429
+    // (issue #109). Pause first, requeue second; GitHub notification is slow
+    // and stays at the tail so it never widens the critical-path window.
+    const store = this.dependencies.rateLimit?.store;
+    let pausedUntil: number | undefined;
+    if (store !== undefined) {
+      pausedUntil = this.now() + this.rateLimitCooldownMs;
+      await store.pause(toolName, pausedUntil);
+    }
+
     try {
       await this.dependencies.queueStore.revertToQueued(task.taskId);
     } catch (error) {
@@ -455,23 +467,7 @@ export class RunnerDaemon {
       }
     }
 
-    const onRateLimited = this.dependencies.notifications?.onRateLimited;
-    if (onRateLimited !== undefined) {
-      try {
-        await onRateLimited(task);
-      } catch (error) {
-        this.warn(
-          `[daemon] notifyTaskRateLimited threw: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-
-    const store = this.dependencies.rateLimit?.store;
-    if (store !== undefined) {
-      const pausedUntil = this.now() + this.rateLimitCooldownMs;
-      await store.pause(toolName, pausedUntil);
+    if (pausedUntil !== undefined) {
       console.warn(
         `[daemon] rate-limited task=${task.taskId} tool=${toolName} pausedUntil=${new Date(pausedUntil).toISOString()}`,
       );
@@ -487,6 +483,19 @@ export class RunnerDaemon {
         task.taskId,
         `rate-limited; reverted to queued (no state store configured)`,
       );
+    }
+
+    const onRateLimited = this.dependencies.notifications?.onRateLimited;
+    if (onRateLimited !== undefined) {
+      try {
+        await onRateLimited(task);
+      } catch (error) {
+        this.warn(
+          `[daemon] notifyTaskRateLimited threw: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
     }
   }
 
