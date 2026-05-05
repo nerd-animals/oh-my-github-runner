@@ -11,6 +11,7 @@ import type { ToolRunInput } from "../../src/domain/tool.js";
 import {
   ClaudeToolRunner,
   encodeProjectsDirName,
+  type ClaudeIntensityMap,
   type ClaudeProjectsFs,
 } from "../../src/infra/tool/claude-tool-runner.js";
 
@@ -69,10 +70,17 @@ function makeProcessRunner(result?: Partial<RunProcessResult>): {
   return { processRunner, calls };
 }
 
+const TEST_INTENSITY_MAP: ClaudeIntensityMap = {
+  low: { model: "test-low-model", effort: "low" },
+  medium: { model: "test-medium-model", effort: "medium" },
+  high: { model: "test-high-model", effort: "max" },
+};
+
 const baseRunnerOptions = {
   command: "claude",
   workspacesDir: "/srv/workspaces",
   claudeHome: "/var/cache/claude",
+  intensityMap: TEST_INTENSITY_MAP,
 };
 
 describe("ClaudeToolRunner.run", () => {
@@ -92,6 +100,10 @@ describe("ClaudeToolRunner.run", () => {
     const args = calls[0]?.args;
     assert.deepEqual(args, [
       "-p",
+      "--model",
+      "test-medium-model",
+      "--effort",
+      "medium",
       "--allowed-tools",
       "Read Grep Edit MultiEdit Bash(gh:*) Bash(git log:*)",
       "--disallowed-tools",
@@ -156,7 +168,13 @@ describe("ClaudeToolRunner.run", () => {
 
     await runner.run({ task, workspacePath: "/tmp/ws", prompt: "hi" });
 
-    assert.deepEqual(calls[0]?.args, ["-p"]);
+    assert.deepEqual(calls[0]?.args, [
+      "-p",
+      "--model",
+      "test-medium-model",
+      "--effort",
+      "medium",
+    ]);
   });
 
   test("with outputSchema: passes --json-schema with serialized schema and surfaces stdout as succeeded", async () => {
@@ -277,6 +295,42 @@ describe("ClaudeToolRunner.run", () => {
     });
 
     assert.equal(result.kind, "failed");
+  });
+
+  test("falls back to the medium intensity preset when input.intensity is omitted", async () => {
+    const { processRunner, calls } = makeProcessRunner();
+    const runner = new ClaudeToolRunner({ ...baseRunnerOptions, processRunner });
+
+    await runner.run({ task, workspacePath: "/tmp/ws", prompt: "hi" });
+
+    const args = calls[0]?.args ?? [];
+    const modelIdx = args.indexOf("--model");
+    const effortIdx = args.indexOf("--effort");
+    assert.equal(args[modelIdx + 1], "test-medium-model");
+    assert.equal(args[effortIdx + 1], "medium");
+  });
+
+  test("translates intensity='low' / 'high' into the matching preset", async () => {
+    for (const intensity of ["low", "high"] as const) {
+      const { processRunner, calls } = makeProcessRunner();
+      const runner = new ClaudeToolRunner({
+        ...baseRunnerOptions,
+        processRunner,
+      });
+
+      await runner.run({
+        task,
+        workspacePath: "/tmp/ws",
+        prompt: "hi",
+        intensity,
+      });
+
+      const args = calls[0]?.args ?? [];
+      const modelIdx = args.indexOf("--model");
+      const effortIdx = args.indexOf("--effort");
+      assert.equal(args[modelIdx + 1], TEST_INTENSITY_MAP[intensity].model);
+      assert.equal(args[effortIdx + 1], TEST_INTENSITY_MAP[intensity].effort);
+    }
   });
 });
 

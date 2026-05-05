@@ -1,5 +1,6 @@
 import type { GitHubSourceContext } from "../domain/github.js";
 import type { RepoRef, TaskRecord } from "../domain/task.js";
+import type { Intensity } from "../domain/tool.js";
 
 export type ContextKey =
   | "issue-body"
@@ -26,6 +27,13 @@ export interface AiRunOptions {
    */
   tool?: string;
   prompt: readonly PromptFragment[];
+  /**
+   * Performance dial routed to the underlying runner. Strategies pick
+   * `low | medium | high`; the runner translates that into its own
+   * model and reasoning-effort settings via an injected preset map.
+   * When omitted the runner uses `medium`.
+   */
+  intensity?: Intensity;
   allowedTools?: readonly string[];
   disallowedTools?: readonly string[];
   timeoutMs?: number;

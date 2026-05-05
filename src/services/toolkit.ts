@@ -269,6 +269,7 @@ class ToolkitImpl implements Toolkit {
           ? { disallowedTools: opts.disallowedTools }
           : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+        ...(opts.intensity !== undefined ? { intensity: opts.intensity } : {}),
         ...(opts.outputSchema !== undefined
           ? { outputSchema: opts.outputSchema }
           : {}),

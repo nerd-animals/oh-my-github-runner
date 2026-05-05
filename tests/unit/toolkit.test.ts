@@ -234,6 +234,35 @@ describe("toolkit.ai.run — prompt render wiring", () => {
     assert.equal(renderCalls[0]?.workspacePath, "/tmp/ws");
   });
 
+  test("forwards intensity to the selected runner", async () => {
+    const { factory, calls } = buildToolkit({ declared: ["claude"] });
+    const tk = factory.create(task);
+
+    await using ws = await tk.workspace.prepareObserve(task);
+    void ws;
+    await tk.github.fetchContext(task);
+
+    await tk.ai.run({
+      prompt: [{ kind: "literal", text: "hi" }],
+      intensity: "high",
+    });
+
+    assert.equal(calls[0]?.input.intensity, "high");
+  });
+
+  test("omits intensity from ToolRunInput when caller does not set it", async () => {
+    const { factory, calls } = buildToolkit({ declared: ["claude"] });
+    const tk = factory.create(task);
+
+    await using ws = await tk.workspace.prepareObserve(task);
+    void ws;
+    await tk.github.fetchContext(task);
+
+    await tk.ai.run({ prompt: [{ kind: "literal", text: "hi" }] });
+
+    assert.equal(calls[0]?.input.intensity, undefined);
+  });
+
   test("forwards outputSchema to the selected runner", async () => {
     const { factory, calls } = buildToolkit({ declared: ["codex"] });
     const tk = factory.create(task);
