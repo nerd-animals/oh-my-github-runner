@@ -263,4 +263,75 @@ describe("RateLimitStateStore", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("pause max-merges: a longer existing pausedUntil wins over a shorter incoming one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+    try {
+      const filePath = join(dir, "state.json");
+      const store = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+
+      // GitHub fetch wrapper writes a precise far-future pause from the
+      // X-RateLimit-Reset header.
+      await store.pause("github", 5_000_000);
+
+      // Daemon's handleRateLimit follows up with its standard cooldown
+      // floor (a closer time). Without max-merge this would shorten the
+      // pause and the next tick would re-trigger 429.
+      await store.pause("github", 2_000_000);
+
+      const active = await store.loadActivePauses();
+      assert.equal(active.get("github"), 5_000_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("pause max-merges: a later, longer pausedUntil overrides an earlier shorter one", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+    try {
+      const filePath = join(dir, "state.json");
+      const store = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+
+      await store.pause("github", 2_000_000);
+      // Then a fresh, longer 429 (more strict) — that one must win.
+      await store.pause("github", 5_000_000);
+
+      const active = await store.loadActivePauses();
+      assert.equal(active.get("github"), 5_000_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("pause overwrites a stale (already-expired) entry with a fresh future timestamp", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+    try {
+      const filePath = join(dir, "state.json");
+      const writer = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+      // Stale pause in the past (e.g. pre-restart).
+      await writer.pause("claude", 500);
+
+      const fresh = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+      // Fresh future pause must replace the stale one even though the
+      // stale value is numerically smaller — max(500, 1_500_000) = 1_500_000.
+      await fresh.pause("claude", 1_500_000);
+
+      const active = await fresh.loadActivePauses();
+      assert.equal(active.get("claude"), 1_500_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

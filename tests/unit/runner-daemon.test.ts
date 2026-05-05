@@ -1,5 +1,6 @@
 ﻿import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import { GithubRateLimitedError } from "../../src/domain/errors/github-rate-limited-error.js";
 import type { TaskRecord } from "../../src/domain/task.js";
 import { RunnerDaemon } from "../../src/daemon/runner-daemon.js";
 import { SchedulerService } from "../../src/services/scheduler-service.js";
@@ -917,6 +918,74 @@ describe("RunnerDaemon", () => {
       ),
       `expected logStore write for revertToQueued failure, got: ${JSON.stringify(logCalls)}`,
     );
+  });
+
+  test("maps a GithubRateLimitedError thrown by runStrategy to a rate_limited result with toolNames=[\"github\"]", async () => {
+    const calls: string[] = [];
+    let currentTask = createTask("queued");
+    const pauses: Array<{ tool: string; pausedUntil: number }> = [];
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-05-05T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          throw new Error("completeTask must not be called for rate_limited");
+        },
+        revertToQueued: async (taskId) => {
+          calls.push(`revert:${taskId}`);
+          return currentTask;
+        },
+        findQueuedBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => {
+        throw new GithubRateLimitedError({
+          kind: "secondary",
+          retryAfterMs: 120_000,
+          pausedUntil: 9_999_999,
+        });
+      },
+      logStore: { write: async () => {}, cleanupExpired: async () => {} },
+      pollIntervalMs: 10,
+      rateLimit: {
+        store: {
+          loadActivePauses: async () => new Map(),
+          pause: async (tool, pausedUntil) => {
+            pauses.push({ tool, pausedUntil });
+          },
+        },
+        cooldownMs: 60_000,
+      },
+      clock: { now: () => 5_000_000 },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    // Daemon must NOT mark the task failed; it requeues for retry.
+    assert.ok(calls.includes("revert:task_1"));
+    // The "github" tool must be paused so the next tick's selectNextTasks
+    // defers every queued task (the global-tool semantic from #110-style).
+    assert.deepEqual(pauses, [
+      { tool: "github", pausedUntil: 5_060_000 },
+    ]);
   });
 
   describe("checkpoint cleanup", () => {
