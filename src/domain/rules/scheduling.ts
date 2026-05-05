@@ -10,7 +10,7 @@ import type { TaskRecord } from "../task.js";
  * not per-strategy AI tools and should not enter the per-tool concurrency
  * cap that #110 introduced.
  */
-const GLOBAL_TOOLS: ReadonlySet<string> = new Set(["github"]);
+export const GLOBAL_TOOLS: ReadonlySet<string> = new Set(["github"]);
 
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
