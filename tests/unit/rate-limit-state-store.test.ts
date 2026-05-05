@@ -167,6 +167,71 @@ describe("RateLimitStateStore", () => {
     }
   });
 
+  test("clear() returns the previous pausedUntil and removes the entry", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+
+    try {
+      const filePath = join(dir, "state.json");
+      const writer = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+
+      await writer.pause("claude", 1_500_000);
+
+      const cleared = await writer.clear("claude");
+      assert.equal(cleared, 1_500_000);
+
+      const reader = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_500,
+      });
+      const active = await reader.loadActivePauses();
+      assert.equal(active.has("claude"), false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clear() is idempotent and returns undefined when no pause is tracked", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+
+    try {
+      const store = new RateLimitStateStore({
+        filePath: join(dir, "state.json"),
+      });
+
+      const result = await store.clear("claude");
+      assert.equal(result, undefined);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clear() leaves other tools' pauses intact", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
+
+    try {
+      const filePath = join(dir, "state.json");
+      const store = new RateLimitStateStore({
+        filePath,
+        now: () => 1_000_000,
+      });
+
+      await store.pause("claude", 1_500_000);
+      await store.pause("codex", 1_600_000);
+
+      const cleared = await store.clear("claude");
+      assert.equal(cleared, 1_500_000);
+
+      const active = await store.loadActivePauses();
+      assert.equal(active.has("claude"), false);
+      assert.equal(active.get("codex"), 1_600_000);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("recovers cleanly after a corrupt state.json so subsequent pauses persist", async () => {
     const dir = await mkdtemp(join(tmpdir(), "rate-state-"));
 

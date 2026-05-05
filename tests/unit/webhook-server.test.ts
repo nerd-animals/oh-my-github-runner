@@ -202,6 +202,189 @@ describe("createWebhookServer", () => {
     assert.equal(stub.calls.length, 1);
   });
 
+  test("POST /admin/rate-limits/:tool/clear invokes the admin clearer with valid bearer token", async () => {
+    const stub = makeHandlerStub(async () => {
+      throw new Error("webhook handler must not be called for admin route");
+    });
+    const cleared: string[] = [];
+
+    await withServer(
+      {
+        handler: stub.handler,
+        rateLimitAdmin: {
+          registeredTools: ["claude", "codex"],
+          adminToken: "secret-token",
+          clear: async (tool) => {
+            cleared.push(tool);
+            return 1_500_000;
+          },
+        },
+      },
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/admin/rate-limits/claude/clear`,
+          {
+            method: "POST",
+            headers: { authorization: "Bearer secret-token" },
+          },
+        );
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+          toolName: "claude",
+          cleared: true,
+          pausedUntil: new Date(1_500_000).toISOString(),
+        });
+      },
+    );
+
+    assert.deepEqual(cleared, ["claude"]);
+  });
+
+  test("POST /admin/rate-limits/:tool/clear is idempotent when no pause exists", async () => {
+    const stub = makeHandlerStub();
+
+    await withServer(
+      {
+        handler: stub.handler,
+        rateLimitAdmin: {
+          registeredTools: ["claude"],
+          adminToken: "secret-token",
+          clear: async () => undefined,
+        },
+      },
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/admin/rate-limits/claude/clear`,
+          {
+            method: "POST",
+            headers: { authorization: "Bearer secret-token" },
+          },
+        );
+
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), {
+          toolName: "claude",
+          cleared: false,
+          pausedUntil: null,
+        });
+      },
+    );
+  });
+
+  test("POST /admin/rate-limits rejects unknown tools with 404", async () => {
+    const stub = makeHandlerStub();
+    let called = false;
+
+    await withServer(
+      {
+        handler: stub.handler,
+        rateLimitAdmin: {
+          registeredTools: ["claude"],
+          adminToken: "secret-token",
+          clear: async () => {
+            called = true;
+            return undefined;
+          },
+        },
+      },
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/admin/rate-limits/gemini/clear`,
+          {
+            method: "POST",
+            headers: { authorization: "Bearer secret-token" },
+          },
+        );
+
+        assert.equal(response.status, 404);
+      },
+    );
+
+    assert.equal(called, false);
+  });
+
+  test("POST /admin/rate-limits returns 401 when the bearer token is wrong", async () => {
+    const stub = makeHandlerStub();
+    let called = false;
+
+    await withServer(
+      {
+        handler: stub.handler,
+        rateLimitAdmin: {
+          registeredTools: ["claude"],
+          adminToken: "secret-token",
+          clear: async () => {
+            called = true;
+            return undefined;
+          },
+        },
+      },
+      async (baseUrl) => {
+        const wrongToken = await fetch(
+          `${baseUrl}/admin/rate-limits/claude/clear`,
+          {
+            method: "POST",
+            headers: { authorization: "Bearer not-the-secret" },
+          },
+        );
+        assert.equal(wrongToken.status, 401);
+
+        const noHeader = await fetch(
+          `${baseUrl}/admin/rate-limits/claude/clear`,
+          { method: "POST" },
+        );
+        assert.equal(noHeader.status, 401);
+      },
+    );
+
+    assert.equal(called, false);
+  });
+
+  test("POST /admin/rate-limits returns 503 when no admin token is configured", async () => {
+    const stub = makeHandlerStub();
+    let called = false;
+
+    await withServer(
+      {
+        handler: stub.handler,
+        rateLimitAdmin: {
+          registeredTools: ["claude"],
+          clear: async () => {
+            called = true;
+            return undefined;
+          },
+        },
+      },
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/admin/rate-limits/claude/clear`,
+          {
+            method: "POST",
+            headers: { authorization: "Bearer anything" },
+          },
+        );
+
+        assert.equal(response.status, 503);
+      },
+    );
+
+    assert.equal(called, false);
+  });
+
+  test("POST /admin/rate-limits returns 503 when no admin provider is wired", async () => {
+    const stub = makeHandlerStub();
+
+    await withServer({ handler: stub.handler }, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/admin/rate-limits/claude/clear`,
+        { method: "POST" },
+      );
+
+      assert.equal(response.status, 503);
+    });
+  });
+
   test("GET /webhook and unknown paths return 404", async () => {
     const stub = makeHandlerStub();
 

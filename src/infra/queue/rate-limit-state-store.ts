@@ -48,6 +48,24 @@ export class RateLimitStateStore {
     });
   }
 
+  /**
+   * Removes any pause entry for `tool`. Returns the previous `pausedUntil`
+   * timestamp if one was cleared, or `undefined` if no pause was tracked.
+   * Idempotent: clearing a non-paused tool is a no-op.
+   */
+  async clear(tool: string): Promise<number | undefined> {
+    return this.withLock(async () => {
+      const state = await this.readState();
+      const previous = state.pauses[tool];
+      if (previous === undefined) {
+        return undefined;
+      }
+      delete state.pauses[tool];
+      await this.writeState(state);
+      return previous;
+    });
+  }
+
   private withLock<T>(fn: () => Promise<T>): Promise<T> {
     const next = this.mutex.then(fn);
     this.mutex = next.then(
