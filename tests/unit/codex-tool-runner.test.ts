@@ -12,7 +12,14 @@ import {
   CodexToolRunner,
   toPrefixRule,
   type CodexFs,
+  type CodexIntensityMap,
 } from "../../src/infra/tool/codex-tool-runner.js";
+
+const TEST_INTENSITY_MAP: CodexIntensityMap = {
+  low: { model: "test-low-model", reasoningEffort: "low" },
+  medium: { model: "test-medium-model", reasoningEffort: "medium" },
+  high: { model: "test-high-model", reasoningEffort: "xhigh" },
+};
 
 const task: TaskRecord = {
   taskId: "task_codex_1",
@@ -116,6 +123,7 @@ describe("CodexToolRunner.run", () => {
       command: "codex",
       processRunner,
       fs,
+      intensityMap: TEST_INTENSITY_MAP,
     });
 
     const input: ToolRunInput = {
@@ -129,6 +137,10 @@ describe("CodexToolRunner.run", () => {
 
     assert.deepEqual(calls[0]?.args, [
       "exec",
+      "-m",
+      "test-medium-model",
+      "-c",
+      "model_reasoning_effort=medium",
       "--sandbox",
       "workspace-write",
       "--ephemeral",
@@ -146,7 +158,7 @@ describe("CodexToolRunner.run", () => {
   test("passes a multi-MiB prompt via stdin without writing it to argv (ARG_MAX guard)", async () => {
     const { fs } = makeFs();
     const { processRunner, calls } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     // 3 MiB exceeds the typical Linux ARG_MAX (~2 MiB) and would crash
     // spawn() with E2BIG if the prompt were placed on argv.
@@ -165,7 +177,7 @@ describe("CodexToolRunner.run", () => {
   test("writes a default.rules file with allow + forbidden prefix rules", async () => {
     const { fs, calls: fsCalls } = makeFs();
     const { processRunner } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
     const rulesDir = path.join("/tmp/ws", ".codex", "rules");
 
     await runner.run({
@@ -195,7 +207,7 @@ describe("CodexToolRunner.run", () => {
   test("skips writing rules when neither list contains shell entries", async () => {
     const { fs, calls: fsCalls } = makeFs();
     const { processRunner } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     await runner.run({
       task,
@@ -211,7 +223,7 @@ describe("CodexToolRunner.run", () => {
   test("forwards GH_TOKEN/GITHUB_TOKEN, timeoutMs, and signal", async () => {
     const { fs } = makeFs();
     const { processRunner, calls } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
     const ac = new AbortController();
 
     await runner.run({
@@ -232,7 +244,7 @@ describe("CodexToolRunner.run", () => {
   test("returns succeeded on exit 0", async () => {
     const { fs } = makeFs();
     const { processRunner } = makeProcessRunner({ exitCode: 0, stdout: "ok" });
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     const result = await runner.run({
       task,
@@ -255,7 +267,7 @@ describe("CodexToolRunner.run", () => {
       exitCode: 0,
       stdout: "raw stdout (should be replaced)",
     });
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
     const schema = {
       type: "object",
       additionalProperties: false,
@@ -302,7 +314,7 @@ describe("CodexToolRunner.run", () => {
   test("with outputSchema: falls back to raw stdout when last-message file is missing", async () => {
     const { fs } = makeFs({ readFileMissing: true });
     const { processRunner } = makeProcessRunner({ exitCode: 0, stdout: "fallback" });
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     const result = await runner.run({
       task,
@@ -326,7 +338,7 @@ describe("CodexToolRunner.run", () => {
       stdout: "codex verbose log",
       stderr: "",
     });
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     const result = await runner.run({
       task,
@@ -345,7 +357,7 @@ describe("CodexToolRunner.run", () => {
   test("without outputSchema: schema file is not written and --output-schema is absent", async () => {
     const { fs, calls: fsCalls } = makeFs();
     const { processRunner, calls: procCalls } = makeProcessRunner();
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
 
@@ -378,7 +390,7 @@ describe("CodexToolRunner.run", () => {
     test(`classifies as rate_limited: ${name}`, async () => {
       const { fs } = makeFs();
       const { processRunner } = makeProcessRunner({ exitCode: 1, stdout: "", stderr });
-      const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+      const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
       const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
 
@@ -405,13 +417,62 @@ describe("CodexToolRunner.run", () => {
     test(`classifies as failed (false-positive guard): ${name}`, async () => {
       const { fs } = makeFs();
       const { processRunner } = makeProcessRunner({ exitCode: 1, stdout: "", stderr });
-      const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+      const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
       const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
 
       assert.equal(result.kind, "failed", `expected failed for: ${stderr}`);
     });
   }
+
+  test("falls back to the medium intensity preset when input.intensity is omitted", async () => {
+    const { fs } = makeFs();
+    const { processRunner, calls } = makeProcessRunner();
+    const runner = new CodexToolRunner({
+      command: "codex",
+      processRunner,
+      fs,
+      intensityMap: TEST_INTENSITY_MAP,
+    });
+
+    await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
+
+    const args = calls[0]?.args ?? [];
+    const mIdx = args.indexOf("-m");
+    const cIdx = args.indexOf("-c");
+    assert.equal(args[mIdx + 1], "test-medium-model");
+    assert.equal(args[cIdx + 1], "model_reasoning_effort=medium");
+  });
+
+  test("translates intensity='low' / 'high' into the matching preset", async () => {
+    for (const intensity of ["low", "high"] as const) {
+      const { fs } = makeFs();
+      const { processRunner, calls } = makeProcessRunner();
+      const runner = new CodexToolRunner({
+        command: "codex",
+        processRunner,
+        fs,
+        intensityMap: TEST_INTENSITY_MAP,
+      });
+
+      await runner.run({
+        task,
+        workspacePath: "/tmp/ws",
+        prompt: "x",
+        intensity,
+      });
+
+      const args = calls[0]?.args ?? [];
+      const mIdx = args.indexOf("-m");
+      const cIdx = args.indexOf("-c");
+      const preset = TEST_INTENSITY_MAP[intensity];
+      assert.equal(args[mIdx + 1], preset.model);
+      assert.equal(
+        args[cIdx + 1],
+        `model_reasoning_effort=${preset.reasoningEffort}`,
+      );
+    }
+  });
 
   test("exit 0 stays succeeded even when output contains rate-limit phrases", async () => {
     // _shared.classifyResult short-circuits on exit 0; pin that invariant
@@ -423,7 +484,7 @@ describe("CodexToolRunner.run", () => {
       stdout: "You've hit your usage limit",
       stderr: "HTTP 429",
     });
-    const runner = new CodexToolRunner({ command: "codex", processRunner, fs });
+    const runner = new CodexToolRunner({ command: "codex", processRunner, fs, intensityMap: TEST_INTENSITY_MAP });
 
     const result = await runner.run({ task, workspacePath: "/tmp/ws", prompt: "x" });
 
@@ -438,6 +499,7 @@ describe("CodexToolRunner.cleanupArtifacts", () => {
       command: "codex",
       processRunner: makeProcessRunner().processRunner,
       fs,
+      intensityMap: TEST_INTENSITY_MAP,
     });
 
     await runner.cleanupArtifacts("/tmp/ws");

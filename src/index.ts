@@ -10,8 +10,14 @@ import { EnqueueService } from "./services/enqueue-service.js";
 import { EventDispatcher } from "./services/event-dispatcher.js";
 import { WebhookHandler } from "./services/webhook-handler.js";
 import { ChildProcessRunner } from "./infra/platform/process-runner.js";
-import { ClaudeToolRunner } from "./infra/tool/claude-tool-runner.js";
-import { CodexToolRunner } from "./infra/tool/codex-tool-runner.js";
+import {
+  ClaudeToolRunner,
+  type ClaudeIntensityMap,
+} from "./infra/tool/claude-tool-runner.js";
+import {
+  CodexToolRunner,
+  type CodexIntensityMap,
+} from "./infra/tool/codex-tool-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
@@ -32,6 +38,22 @@ import {
   renderSuperseded,
 } from "./services/sticky-comment.js";
 import type { TaskRecord } from "./domain/task.js";
+
+// Production intensity presets. Strategies pick `low | medium | high`;
+// each runner translates it into the model + reasoning-effort pair
+// declared here. Keep policy in this composition root — runners stay
+// policy-free and tests inject their own cheap presets.
+const PRODUCTION_CLAUDE_INTENSITY_MAP: ClaudeIntensityMap = {
+  low: { model: "sonnet", effort: "high" },
+  medium: { model: "opus", effort: "medium" },
+  high: { model: "opus", effort: "max" },
+};
+
+const PRODUCTION_CODEX_INTENSITY_MAP: CodexIntensityMap = {
+  low: { model: "gpt-5.4-mini", reasoningEffort: "high" },
+  medium: { model: "gpt-5.5", reasoningEffort: "medium" },
+  high: { model: "gpt-5.5", reasoningEffort: "xhigh" },
+};
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -137,6 +159,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
         processRunner,
         workspacesDir,
         claudeHome,
+        intensityMap: PRODUCTION_CLAUDE_INTENSITY_MAP,
       }),
     });
   }
@@ -149,6 +172,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
       runner: new CodexToolRunner({
         command: process.env.CODEX_COMMAND,
         processRunner,
+        intensityMap: PRODUCTION_CODEX_INTENSITY_MAP,
       }),
     });
   }

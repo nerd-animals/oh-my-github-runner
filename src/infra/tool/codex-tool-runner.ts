@@ -2,8 +2,31 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 import type { ToolRunner } from "../../domain/ports/tool-runner.js";
-import type { ToolRunInput, ToolRunResult } from "../../domain/tool.js";
+import type {
+  Intensity,
+  ToolRunInput,
+  ToolRunResult,
+} from "../../domain/tool.js";
 import { buildBaseEnv, classifyResult } from "./_shared.js";
+
+// Codex CLI's `model_reasoning_effort` config keys (see codex
+// config-reference). The runner does not pick values; the injected
+// intensity map decides which keys are used per Intensity step.
+export type CodexReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh";
+
+export interface CodexIntensityPreset {
+  model: string;
+  reasoningEffort: CodexReasoningEffort;
+}
+
+export type CodexIntensityMap = Readonly<
+  Record<Intensity, CodexIntensityPreset>
+>;
 
 export interface CodexFs {
   mkdir: (target: string, options: { recursive: true }) => Promise<unknown>;
@@ -18,6 +41,9 @@ export interface CodexFs {
 export interface CodexToolRunnerOptions {
   command: string;
   processRunner: ProcessRunner;
+  // Maps the strategy-facing `Intensity` to a model/effort pair. The
+  // runner stays policy-free; production wiring picks the values.
+  intensityMap: CodexIntensityMap;
   fs?: CodexFs;
 }
 
@@ -54,8 +80,14 @@ export class CodexToolRunner implements ToolRunner {
     await this.writeRulesFile(input);
     const lastMessagePath = await this.prepareOutputSchema(input);
 
+    const preset =
+      this.options.intensityMap[input.intensity ?? "medium"];
     const args = [
       "exec",
+      "-m",
+      preset.model,
+      "-c",
+      `model_reasoning_effort=${preset.reasoningEffort}`,
       "--sandbox",
       "workspace-write",
       "--ephemeral",

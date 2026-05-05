@@ -2,8 +2,26 @@ import { rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ProcessRunner } from "../../domain/ports/process-runner.js";
 import type { ToolRunner } from "../../domain/ports/tool-runner.js";
-import type { ToolRunInput, ToolRunResult } from "../../domain/tool.js";
+import type {
+  Intensity,
+  ToolRunInput,
+  ToolRunResult,
+} from "../../domain/tool.js";
 import { buildBaseEnv, classifyResult } from "./_shared.js";
+
+// Claude Code's `--effort` enum (`claude --help`). The runner only
+// references the union; concrete values come from the injected
+// intensity map so policy stays out of this file.
+export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ClaudeIntensityPreset {
+  model: string;
+  effort: ClaudeEffort;
+}
+
+export type ClaudeIntensityMap = Readonly<
+  Record<Intensity, ClaudeIntensityPreset>
+>;
 
 export interface ClaudeProjectsFs {
   rm: (
@@ -23,6 +41,9 @@ export interface ClaudeToolRunnerOptions {
   // Where Claude Code stores per-project session state. Default
   // installations write to `~/.claude`.
   claudeHome: string;
+  // Maps the strategy-facing `Intensity` to a model/effort pair. The
+  // runner stays policy-free; production wiring picks the values.
+  intensityMap: ClaudeIntensityMap;
   fs?: ClaudeProjectsFs;
 }
 
@@ -43,7 +64,16 @@ export class ClaudeToolRunner implements ToolRunner {
   }
 
   async run(input: ToolRunInput): Promise<ToolRunResult> {
-    const args = ["-p", ...this.buildPermissionArgs(input)];
+    const preset =
+      this.options.intensityMap[input.intensity ?? "medium"];
+    const args = [
+      "-p",
+      "--model",
+      preset.model,
+      "--effort",
+      preset.effort,
+      ...this.buildPermissionArgs(input),
+    ];
     if (input.outputSchema !== undefined) {
       // Claude Code's --json-schema validates the model's response against
       // the supplied JSON Schema and emits the schema-conformant JSON as
