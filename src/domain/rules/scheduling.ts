@@ -1,5 +1,17 @@
 import type { TaskRecord } from "../task.js";
 
+/**
+ * Tools that every task implicitly depends on, regardless of what the
+ * strategy declares in `policies.uses`. When any of these is paused the
+ * scheduler defers ALL tasks — there is no way to make progress without
+ * the resource. Currently just "github": every task fetches issue/PR
+ * context and posts comments, so a runner-side GitHub rate-limit grounds
+ * the queue. Strategies must NOT list these in `policies.uses`; they are
+ * not per-strategy AI tools and should not enter the per-tool concurrency
+ * cap that #110 introduced.
+ */
+export const GLOBAL_TOOLS: ReadonlySet<string> = new Set(["github"]);
+
 export interface SelectNextTasksInput {
   tasks: TaskRecord[];
   maxConcurrency: number;
@@ -29,6 +41,17 @@ export interface SelectNextTasksInput {
 // supersede-on-enqueue.
 export function selectNextTasks(input: SelectNextTasksInput): string[] {
   const pausedTools = input.pausedTools ?? new Set<string>();
+
+  // Global pause: a paused GLOBAL_TOOL grounds every task because every
+  // strategy depends on it. Returns empty without touching the per-tool
+  // accounting below — GLOBAL_TOOLS are intentionally not declared in
+  // `policies.uses` so they never enter the per-tool in-flight cap.
+  for (const tool of GLOBAL_TOOLS) {
+    if (pausedTools.has(tool)) {
+      return [];
+    }
+  }
+
   const running = input.tasks.filter((task) => task.status === "running");
   const slots = input.maxConcurrency - running.length;
 

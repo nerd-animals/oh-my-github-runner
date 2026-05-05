@@ -1,6 +1,8 @@
+import { isGithubRateLimitedError } from "../domain/errors/github-rate-limited-error.js";
 import type { CheckpointStore } from "../domain/ports/checkpoint-store.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { QueueStore } from "../domain/ports/queue-store.js";
+import { GLOBAL_TOOLS } from "../domain/rules/scheduling.js";
 import type { TaskRecord } from "../domain/task.js";
 import type { RateLimitStateStore } from "../infra/queue/rate-limit-state-store.js";
 import type { SchedulerService } from "../services/scheduler-service.js";
@@ -386,11 +388,17 @@ export class RunnerDaemon {
   ): void {
     const registered = this.dependencies.rateLimit?.registeredTools ?? [];
 
-    if (registered.length === 0) {
-      return;
-    }
-
-    if (!registered.every((tool) => pausedTools.has(tool))) {
+    // Two ways the queue is globally stuck on rate-limit:
+    //   1. Every registered AI tool (claude, codex, ...) is paused.
+    //   2. Any GLOBAL tool ("github") is paused — every task depends on
+    //      it implicitly even though strategies do not declare it.
+    const everyAiToolPaused =
+      registered.length > 0 &&
+      registered.every((tool) => pausedTools.has(tool));
+    const globalPausedNow = [...GLOBAL_TOOLS].filter((tool) =>
+      pausedTools.has(tool),
+    );
+    if (!everyAiToolPaused && globalPausedNow.length === 0) {
       return;
     }
 
@@ -405,8 +413,12 @@ export class RunnerDaemon {
     }
 
     this.lastIdleWarningAt = now;
+    const pausedNow = [
+      ...registered.filter((tool) => pausedTools.has(tool)),
+      ...globalPausedNow,
+    ];
     this.warn(
-      `All registered tools are rate-limited (${registered.join(", ")}); queued tasks are blocked until pauses expire.`,
+      `Tools rate-limited (${pausedNow.join(", ")}); queued tasks are blocked until pauses expire.`,
     );
   }
 
@@ -419,11 +431,21 @@ export class RunnerDaemon {
     try {
       result = await this.dependencies.runStrategy(task, active.abort.signal);
     } catch (error) {
-      result = {
-        status: "failed",
-        errorSummary:
-          error instanceof Error ? error.message : "unexpected daemon error",
-      };
+      if (isGithubRateLimitedError(error)) {
+        // The GitHub fetch wrapper has already written a precise pause to
+        // RateLimitStateStore using the X-RateLimit-Reset / Retry-After
+        // headers. Surface as rate_limited so handleRateLimit requeues
+        // the task; max-merge in the store keeps the wrapper's pause
+        // intact even though we will re-pause "github" with the daemon's
+        // coarser cooldown floor.
+        result = { status: "rate_limited", toolNames: ["github"] };
+      } else {
+        result = {
+          status: "failed",
+          errorSummary:
+            error instanceof Error ? error.message : "unexpected daemon error",
+        };
+      }
     }
 
     if (result.status === "rate_limited") {

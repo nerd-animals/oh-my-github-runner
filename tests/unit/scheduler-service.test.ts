@@ -178,6 +178,45 @@ describe("SchedulerService", () => {
     assert.deepEqual(selected, ["task_1", "task_2"]);
   });
 
+  test("defers every task when 'github' is paused (global tool)", () => {
+    // 'github' is not declared in any strategy's policies.uses; it is an
+    // implicit dependency for every task. When the runner-side GitHub
+    // client trips its rate-limit and pauses 'github', the scheduler must
+    // defer everything regardless of what each task's AI tool is.
+    const scheduler = new SchedulerService({ maxConcurrency: 2 });
+
+    const selected = scheduler.selectNextTasks({
+      tasks: [
+        createTask("task_claude", "queued", "repo-a"),
+        createTask("task_codex", "queued", "repo-b"),
+      ],
+      pausedTools: new Set(["github"]),
+      toolsForTask: (task) =>
+        task.taskId === "task_codex" ? ["codex"] : ["claude"],
+    });
+
+    assert.deepEqual(selected, []);
+  });
+
+  test("non-global paused tools still allow tasks on other tools", () => {
+    // Sanity: regression check that the global-pause shortcut does not
+    // leak into per-tool pausing. claude paused, github clear → codex
+    // task should still run.
+    const scheduler = new SchedulerService({ maxConcurrency: 2 });
+
+    const selected = scheduler.selectNextTasks({
+      tasks: [
+        createTask("task_claude", "queued", "repo-a"),
+        createTask("task_codex", "queued", "repo-b"),
+      ],
+      pausedTools: new Set(["claude"]),
+      toolsForTask: (task) =>
+        task.taskId === "task_codex" ? ["codex"] : ["claude"],
+    });
+
+    assert.deepEqual(selected, ["task_codex"]);
+  });
+
   test("multi-tool running task claims every declared tool (#110)", () => {
     // issue-initial-review style: declares claude + codex even though one
     // task only runs them sequentially. A queued task using either tool

@@ -21,6 +21,7 @@ import {
 } from "./infra/tool/codex-tool-runner.js";
 import { GitWorkspaceManager } from "./infra/workspaces/git-workspace-manager.js";
 import { GitHubAppClient } from "./infra/github/github-app-client.js";
+import { createGithubFetcher } from "./infra/github/github-fetch.js";
 import { loadPromptFragments } from "./infra/prompts/prompt-fragment-loader.js";
 import { PromptRenderer } from "./infra/prompts/prompt-renderer.js";
 import { ToolkitFactory } from "./services/toolkit.js";
@@ -133,12 +134,39 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   const claudeHome =
     process.env.CLAUDE_HOME ?? path.join(os.homedir(), ".claude");
 
+  // RateLimitStateStore must exist before GitHubAppClient: the GitHub fetch
+  // wrapper records pauses there whenever it observes proactive headers
+  // dropping below threshold or a long Retry-After.
+  const rateLimitStateStore = new RateLimitStateStore({
+    filePath: path.join(runnerRoot, "var", "queue", "state.json"),
+  });
+  const rateLimitCooldownMs = parsePositiveInt(
+    process.env.RATE_LIMIT_COOLDOWN_MS,
+    30 * 60 * 1000,
+  );
+  const githubProactiveThreshold = parsePositiveInt(
+    process.env.GITHUB_PROACTIVE_THRESHOLD,
+    500,
+  );
+  const githubInlineRetryThresholdMs =
+    parsePositiveInt(process.env.GITHUB_INLINE_RETRY_THRESHOLD_S, 60) * 1000;
+
+  const githubFetcher = createGithubFetcher({
+    pauseSink: {
+      pause: (pausedUntil) => rateLimitStateStore.pause("github", pausedUntil),
+    },
+    proactiveThreshold: githubProactiveThreshold,
+    inlineRetryThresholdMs: githubInlineRetryThresholdMs,
+    cooldownMs: rateLimitCooldownMs,
+  });
+
   const githubClient = new GitHubAppClient({
     appId: requireEnv("GITHUB_APP_ID"),
     privateKeyPath: requireEnv("GITHUB_APP_PRIVATE_KEY_PATH"),
     ...(process.env.GITHUB_API_BASE_URL !== undefined
       ? { apiBaseUrl: process.env.GITHUB_API_BASE_URL }
       : {}),
+    fetcher: githubFetcher,
   });
   const workspaceManager = new GitWorkspaceManager({
     reposDir: path.join(runnerRoot, "var", "repos"),
@@ -184,14 +212,6 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   }
   const toolRegistry = new ToolRegistry(toolEntries);
   const registeredTools = toolEntries.map((entry) => entry.name);
-
-  const rateLimitStateStore = new RateLimitStateStore({
-    filePath: path.join(runnerRoot, "var", "queue", "state.json"),
-  });
-  const rateLimitCooldownMs = parsePositiveInt(
-    process.env.RATE_LIMIT_COOLDOWN_MS,
-    30 * 60 * 1000,
-  );
 
   const queueStore = new FileQueueStore({
     dataDir: path.join(runnerRoot, "var", "queue"),

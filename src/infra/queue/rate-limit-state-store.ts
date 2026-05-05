@@ -43,7 +43,20 @@ export class RateLimitStateStore {
   async pause(tool: string, pausedUntil: number): Promise<void> {
     await this.withLock(async () => {
       const state = await this.readState();
-      state.pauses[tool] = pausedUntil;
+      // Max-merge: a longer pausedUntil already on disk wins. Two writers
+      // can race when a 429 from the wrapper writes a precise reset time
+      // (e.g. now + 60 min from X-RateLimit-Reset) and the daemon's
+      // handleRateLimit follows up with its standard cooldown floor
+      // (e.g. now + 30 min). Without max-merge the coarser write would
+      // shorten the precise pause and the next tick would re-trigger 429.
+      // Stale past entries cannot interfere because loadActivePauses
+      // filters them out and `pausedUntil > existing` is true for any
+      // fresh future timestamp written over a stale past one.
+      const existing = state.pauses[tool];
+      state.pauses[tool] =
+        existing !== undefined && existing > pausedUntil
+          ? existing
+          : pausedUntil;
       await this.writeState(state);
     });
   }
