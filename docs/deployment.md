@@ -135,9 +135,26 @@ an ephemeral Tailscale node (`tag:gh-deploy`) and SSHes into the VM
 (`tag:server`) over **Tailscale SSH** — no SSH keys are managed in
 GitHub, the tailnet ACL handles the auth. On the VM, the workflow runs
 `ops/scripts/deploy.sh` which fetches `origin/main`, no-ops if the head
-already matches, otherwise resets, reinstalls runtime dependencies,
-recompiles, and restarts the service. Build failures abort the deploy
-without touching the running daemon.
+already matches, otherwise drains in-flight tasks, **stops the daemon**,
+resets, reinstalls runtime dependencies, recompiles, and **starts the
+daemon back up**. Stopping before `git reset` / `npm ci` / `npm run
+compile` enforces the contract that the live daemon never observes a
+half-rewritten `node_modules/` or `dist/` tree.
+
+The trade-off is that webhook delivery is unavailable for the
+stop/build/start window (typically tens of seconds). Failed GitHub
+webhook deliveries are not auto-redelivered (see
+[GitHub docs on handling failed webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)),
+so if a comment trigger lands during a deploy and the bot stays silent,
+re-post the trigger comment to retry. Comment / issue / PR state on
+GitHub itself is unaffected; only the runner's reaction is.
+
+Because the daemon is stopped before the build, an `npm ci` or
+`npm run compile` failure leaves the service down. The script prints a
+`service is currently stopped` line on stderr in that case; recover by
+re-running the deploy after fixing the cause, or `sudo systemctl start
+oh-my-github-runner.service` manually. Auto-rollback is intentionally
+out of scope.
 
 ### One-time VM setup
 
@@ -146,9 +163,11 @@ without touching the running daemon.
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --ssh --advertise-tags=tag:server
 
-# 2) Sudoers — ubuntu only needs to restart the runner service
+# 2) Sudoers — ubuntu needs to stop and start the runner service from
+#    deploy.sh. (`is-active` and `journalctl` are read-only and don't
+#    require sudo; group `adm` membership is enough.)
 sudo install -m 440 /dev/stdin /etc/sudoers.d/oh-my-github-runner-deploy <<'SUDO'
-ubuntu ALL=(root) NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+ubuntu ALL=(root) NOPASSWD: /bin/systemctl stop oh-my-github-runner.service, /bin/systemctl start oh-my-github-runner.service
 SUDO
 sudo visudo -c   # syntax check; non-zero exit = revert above
 ```
@@ -185,14 +204,15 @@ commit (e.g., a manual `git pull` ran first), the workflow logs
 `Already at <sha>; nothing to deploy.` and exits 0. The service is
 left untouched.
 
-After `systemctl restart`, the script polls `systemctl is-active` for up to
+After `systemctl start`, the script polls `systemctl is-active` for up to
 ~15s and requires multiple consecutive `active` samples before declaring
 success — this catches the case where the new daemon throws on startup
 and systemd silently flips into a `Restart=always` crashloop. On failure
 the script prints the last 80 lines of `journalctl -u
 oh-my-github-runner.service` to stderr and exits non-zero, turning the
 GitHub Actions run red. Both probes run as the `ubuntu` user without sudo
-(journal access via group `adm`); the sudoers grant above is unchanged.
+(journal access via group `adm`); the sudoers grant above is the
+`stop`/`start` pair only.
 Tune the probe via `RUNNER_DEPLOY_VERIFY_INTERVAL_SEC`,
 `RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT`, and
 `RUNNER_DEPLOY_VERIFY_STABLE_COUNT` if the defaults clash with a slower
@@ -222,26 +242,30 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   posts a `Task <id> failed before completion: <summary>` comment to the
   originating issue or PR. Orphaned workspaces under `var/workspaces/`
   are not cleaned automatically in v1. Note: `deploy.sh` waits briefly
-  for running tasks to drain before reset/restart and gives up on its own
+  for running tasks to drain before stop/reset/build/start and gives up on its own
   if they don't, so the normal push flow does not trip this path;
   `recoverRunningTasks` is reserved for actual crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'` (replace the `ubuntu@github-runner` host with your VM's tailnet target if you forked)
-- Deploy waits briefly for running tasks to drain before resetting and
-  restarting (counts files in `var/queue/running/`, polling every 5s).
-  If a task is still running after `RUNNER_DEPLOY_MAX_WAIT_SEC` (default
-  120s), the deploy exits non-zero and the service is left on the old
-  SHA. The next push to `main` re-runs the workflow against the latest
-  `origin/main`, so the failed deploy is not pinned to its commit; if no
-  further push is imminent (or the change was filtered out by
-  `paths-ignore`), trigger Deploy manually via `workflow_dispatch` after
-  the in-flight task finishes. Override the cap with
-  `RUNNER_DEPLOY_MAX_WAIT_SEC` (must stay well under the workflow
-  `timeout-minutes`, currently 15) and the poll interval with
-  `RUNNER_DEPLOY_POLL_SEC`. `queued` tasks are unaffected — they survive
-  the restart and resume from the new code. Strategy code changes follow
-  the same flow: in-flight tasks finish on the old strategy code (loaded
-  into the running process), new tasks pick up the new code after the
-  daemon restarts.
+- Deploy waits briefly for running tasks to drain before stopping the
+  daemon, resetting, and starting it back up (counts files in
+  `var/queue/running/`, polling every 5s). If a task is still running
+  after `RUNNER_DEPLOY_MAX_WAIT_SEC` (default 120s), the deploy exits
+  non-zero and the service is left on the old SHA. The next push to
+  `main` re-runs the workflow against the latest `origin/main`, so the
+  failed deploy is not pinned to its commit; if no further push is
+  imminent (or the change was filtered out by `paths-ignore`), trigger
+  Deploy manually via `workflow_dispatch` after the in-flight task
+  finishes. Override the cap with `RUNNER_DEPLOY_MAX_WAIT_SEC` (must stay
+  well under the workflow `timeout-minutes`, currently 15) and the poll
+  interval with `RUNNER_DEPLOY_POLL_SEC`. `queued` tasks are unaffected
+  — they survive the stop/start window and resume from the new code.
+  Strategy code changes follow the same flow: in-flight tasks finish on
+  the old strategy code (loaded into the running process), new tasks
+  pick up the new code after the daemon starts back up. Webhook
+  deliveries that arrive *during* the stop/build/start window may fail
+  and will not be auto-redelivered by GitHub; the comment / issue / PR
+  on GitHub itself is unaffected, so simply re-post the trigger comment
+  to retry.
 - Tweak retention for terminal tasks with `RUNNER_QUEUE_RETENTION_DAYS`
   (default 7). Files under `var/queue/{succeeded,failed,superseded}/` older
   than the cutoff are removed by the daemon at boot and every 24h.

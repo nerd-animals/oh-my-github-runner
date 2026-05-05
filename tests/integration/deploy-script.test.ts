@@ -126,18 +126,29 @@ exit 0
 }
 
 describe("integration: ops/scripts/deploy.sh entrypoint guard", () => {
-  test("restarts service when compile produces dist/src/index.js", async () => {
+  test("starts service when compile produces dist/src/index.js", async () => {
     const result = await runDeploy({ emitEntrypoint: true });
 
     assert.equal(result.code, 0, `stderr was: ${result.stderr}`);
-    assert.deepEqual(result.sudoCalls, ["/bin/systemctl restart test.service"]);
+    // The deploy now stops the daemon before mutating node_modules/dist and
+    // starts it again after a successful build. The exact sequence matters:
+    // any reordering reintroduces the live-daemon race this script exists to
+    // close.
+    assert.deepEqual(result.sudoCalls, [
+      "/bin/systemctl stop test.service",
+      "/bin/systemctl start test.service",
+    ]);
   });
 
-  test("aborts before restart when compile leaves dist/src/index.js missing", async () => {
+  test("aborts before start when compile leaves dist/src/index.js missing", async () => {
     const result = await runDeploy({ emitEntrypoint: false });
 
     assert.notEqual(result.code, 0);
-    assert.equal(result.sudoCalls.length, 0);
+    // Stop runs before the build (so the daemon is not racing the rebuild),
+    // but start must NOT run when the entrypoint guard fails. The service is
+    // intentionally left stopped so the operator notices and re-runs.
+    assert.deepEqual(result.sudoCalls, ["/bin/systemctl stop test.service"]);
     assert.match(result.stderr, /compile produced no entrypoint/);
+    assert.match(result.stderr, /service is currently stopped/);
   });
 });

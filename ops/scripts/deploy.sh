@@ -3,7 +3,14 @@
 # Designed to be invoked by the SSH user (the same user that owns the repo,
 # typically ubuntu) from GitHub Actions over Tailscale SSH. Sudoers must
 # allow that user:
-#   <ssh_user> ALL=(root) NOPASSWD: /bin/systemctl restart oh-my-github-runner.service
+#   <ssh_user> ALL=(root) NOPASSWD: /bin/systemctl stop oh-my-github-runner.service, /bin/systemctl start oh-my-github-runner.service
+#
+# Order: drain -> stop -> reset -> npm ci -> compile -> entrypoint sanity ->
+# start -> is-active verify. Stopping before mutating node_modules/dist
+# enforces the contract that the daemon's filesystem is frozen for its
+# lifetime: no live import / spawn from a half-written tree. Webhook delivery
+# is unavailable for the stop/build/start window; failed deliveries do not
+# auto-redeliver, so callers retrigger their command if the bot stays silent.
 set -euo pipefail
 
 REPO_ROOT=${REPO_ROOT:-/home/ubuntu/runner-deploy}
@@ -26,7 +33,7 @@ fi
 
 echo "Updating $current -> $remote"
 
-# Wait briefly for running tasks to drain before reset/build/restart. If a
+# Wait briefly for running tasks to drain before stop/reset/build/start. If a
 # task is still running after MAX_WAIT_SEC, abandon this deploy with non-zero
 # exit and leave the service on the old SHA: the next push (or manual
 # workflow_dispatch) re-runs against the latest origin/main. This avoids the
@@ -51,22 +58,40 @@ while true; do
   sleep "$POLL_SEC"
 done
 
+# After this point, any non-zero exit before `systemctl start` succeeds leaves
+# the service stopped. The trap surfaces that state so the operator knows to
+# fix the root cause and re-run (or `sudo systemctl start <service>` manually).
+# Auto-rollback is intentionally out of scope here.
+service_stopped=0
+warn_if_stopped() {
+  local rc=$?
+  if [ "$rc" -ne 0 ] && [ "$service_stopped" = "1" ]; then
+    echo "Deploy failed after stopping ${SERVICE}; service is currently stopped." >&2
+    echo "Re-run deploy after fixing the cause, or 'sudo systemctl start ${SERVICE}' to recover." >&2
+  fi
+}
+trap warn_if_stopped EXIT
+
+sudo /bin/systemctl stop "$SERVICE"
+service_stopped=1
+
 git reset --hard "$remote"
 # Keep dev deps because tsc (typescript) lives in devDependencies and is
 # required for `npm run compile`.
 npm ci --silent
 npm run compile --silent
 # tsc can exit 0 without emitting the entrypoint (stale .tsbuildinfo,
-# project references gone wrong, type-only sources). Block restart so the
+# project references gone wrong, type-only sources). Block start so the
 # service does not loop on a missing main module.
 [ -f dist/src/index.js ] || {
   echo "compile produced no entrypoint: dist/src/index.js" >&2
   exit 1
 }
 
-sudo /bin/systemctl restart "$SERVICE"
+sudo /bin/systemctl start "$SERVICE"
+service_stopped=0
 
-# `systemctl restart` returns as soon as systemd accepts the request, so a
+# `systemctl start` returns as soon as systemd accepts the request, so a
 # daemon that throws on startup leaves the unit in a Restart=always
 # crashloop while this script otherwise reports success. Poll `is-active`
 # until the state is stably `active`, or fail the deploy with a journal
@@ -99,7 +124,7 @@ while [ "$attempt" -lt "$VERIFY_TIMEOUT_COUNT" ]; do
 done
 
 if [ "$stable" -lt "$VERIFY_STABLE_COUNT" ]; then
-  echo "Service did not stabilize after restart (state=$state, stable=${stable}/${VERIFY_STABLE_COUNT}, attempts=${attempt}/${VERIFY_TIMEOUT_COUNT})" >&2
+  echo "Service did not stabilize after start (state=$state, stable=${stable}/${VERIFY_STABLE_COUNT}, attempts=${attempt}/${VERIFY_TIMEOUT_COUNT})" >&2
   journalctl -u "$SERVICE" -n 80 --no-pager 2>&1 || true
   exit 1
 fi

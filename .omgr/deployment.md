@@ -19,7 +19,7 @@ Full operator handbook: [`docs/deployment.md`](../docs/deployment.md). This file
 
 ## CD
 
-`push main` → `.github/workflows/deploy.yml` → ephemeral Tailscale node SSHes VM (`tag:server`, Tailscale SSH — no SSH keys in GitHub) → `ops/scripts/deploy.sh`: drain `var/queue/running/` (poll 5s, no internal timeout — bound by 15-min workflow), reset, reinstall, recompile, restart. Build failures abort without touching the running daemon. In-flight tasks finish on old code; queued tasks resume on new.
+`push main` → `.github/workflows/deploy.yml` → ephemeral Tailscale node SSHes VM (`tag:server`, Tailscale SSH — no SSH keys in GitHub) → `ops/scripts/deploy.sh`: drain `var/queue/running/` (poll 5s), `systemctl stop`, reset, reinstall, recompile, `systemctl start`. Stop comes before any tree mutation so the live daemon never observes a half-rewritten `node_modules/`/`dist/`. Build failures after `stop` leave the service down — script prints `service is currently stopped`, operator re-runs deploy or starts manually. Webhook deliveries during the stop/build/start window can fail; GitHub does not auto-redeliver, so callers retrigger their command if the bot stays silent. In-flight tasks finish on old code; queued tasks resume on new.
 
 ## Logs
 
