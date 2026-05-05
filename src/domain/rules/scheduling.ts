@@ -12,21 +12,35 @@ export interface SelectNextTasksInput {
   toolsForTask: (task: TaskRecord) => readonly string[];
 }
 
-// Pure FIFO scheduling against the concurrency budget, skipping any
-// queued task whose agent is rate-limit-paused. Same-repo mutate
-// serialization is no longer needed: branch names now include a
-// taskId suffix so concurrent mutate runs cannot collide on a branch,
-// and same-source duplicate triggers are handled by supersede-on-enqueue
-// rather than by holding back the second task in the scheduler.
+// Pure FIFO scheduling against the concurrency budget. Two skip rules:
+//   1. Tool is rate-limit-paused.
+//   2. Tool is already claimed by another in-flight task — either currently
+//      running, or selected earlier in this same tick (issue #110). Without
+//      this cap, two queued tasks sharing a tool got dispatched together;
+//      the first task's eventual 429 wrote a pause too late to stop the
+//      second from also hitting 429. Per-tool budget = 1.
+// Multi-tool strategies (e.g. issue-initial-review with claude + codex)
+// claim every tool they declare. Persona steps run sequentially inside a
+// task, so we cannot assume the task is using "only" one tool right now —
+// any concurrent same-strategy task could collide on either side.
+// Same-repo mutate serialization is intentionally not enforced here: branch
+// names include a taskId suffix so concurrent mutate runs cannot collide on
+// a branch, and same-source duplicate triggers are handled by
+// supersede-on-enqueue.
 export function selectNextTasks(input: SelectNextTasksInput): string[] {
   const pausedTools = input.pausedTools ?? new Set<string>();
-  const runningCount = input.tasks.filter(
-    (task) => task.status === "running",
-  ).length;
-  const slots = input.maxConcurrency - runningCount;
+  const running = input.tasks.filter((task) => task.status === "running");
+  const slots = input.maxConcurrency - running.length;
 
   if (slots <= 0) {
     return [];
+  }
+
+  const inFlightTools = new Set<string>();
+  for (const task of running) {
+    for (const tool of input.toolsForTask(task)) {
+      inFlightTools.add(tool);
+    }
   }
 
   const selected: string[] = [];
@@ -38,7 +52,13 @@ export function selectNextTasks(input: SelectNextTasksInput): string[] {
     if (taskTools.some((t) => pausedTools.has(t))) {
       continue;
     }
+    if (taskTools.some((t) => inFlightTools.has(t))) {
+      continue;
+    }
     selected.push(task.taskId);
+    for (const tool of taskTools) {
+      inFlightTools.add(tool);
+    }
   }
   return selected;
 }
