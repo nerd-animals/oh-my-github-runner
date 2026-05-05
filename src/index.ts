@@ -22,6 +22,7 @@ import {
   ToolRegistry,
   type ToolRegistryEntry,
 } from "./services/tool-registry.js";
+import { RunnerStatusService } from "./services/runner-status-service.js";
 import { DeliveryDedupCache } from "./infra/webhook/delivery-dedup.js";
 import { createWebhookServer } from "./infra/webhook/webhook-server.js";
 import { RateLimitStateStore } from "./infra/queue/rate-limit-state-store.js";
@@ -344,7 +345,16 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     deliveryDedup: new DeliveryDedupCache(),
   });
 
-  const httpServer = createWebhookServer({ handler: webhookHandler });
+  const runnerStatusService = new RunnerStatusService({
+    queueStore,
+    registeredTools,
+    toolsForTask,
+  });
+
+  const httpServer = createWebhookServer({
+    handler: webhookHandler,
+    statusProvider: runnerStatusService,
+  });
 
   return new Runtime({
     daemon,
