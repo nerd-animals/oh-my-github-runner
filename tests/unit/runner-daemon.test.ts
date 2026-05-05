@@ -54,7 +54,7 @@ describe("RunnerDaemon", () => {
           calls.push(`revert:${taskId}`);
           return currentTask;
         },
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -117,7 +117,7 @@ describe("RunnerDaemon", () => {
           calls.push(`revert:${taskId}`);
           return currentTask;
         },
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -187,7 +187,7 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -240,7 +240,7 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -296,7 +296,7 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -357,7 +357,7 @@ describe("RunnerDaemon", () => {
           return currentTask;
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -406,7 +406,7 @@ describe("RunnerDaemon", () => {
           throw new Error("completeTask should not run for rate-limited tasks");
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -437,41 +437,27 @@ describe("RunnerDaemon", () => {
     assert.deepEqual(notifiedRateLimited, ["task_1"]);
   });
 
-  test("supersede aborts a running task and persists supersededBy without notifying failure", async () => {
+  test("supersede on a queued task persists supersededBy and fires onSuperseded", async () => {
     const calls: string[] = [];
-    let currentTask = createTask("queued");
     const supersededNotifications: Array<{
       taskId: string;
       supersededBy: string;
     }> = [];
-
-    let resolveStrategy: ((value: { status: "failed"; errorSummary: string }) => void) | undefined;
-    const strategyPromise = new Promise<{ status: "failed"; errorSummary: string }>(
-      (resolve) => {
-        resolveStrategy = resolve;
-      },
-    );
+    let currentTask = createTask("queued");
 
     const daemon = new RunnerDaemon({
       queueStore: {
         enqueue: async () => currentTask,
         listTasks: async () => [currentTask],
         getTask: async () => currentTask,
-        startTask: async (taskId) => {
-          calls.push(`start:${taskId}`);
-          currentTask = {
-            ...currentTask,
-            status: "running",
-            startedAt: "2026-04-30T00:01:00.000Z",
-          };
-          return currentTask;
+        startTask: async () => {
+          throw new Error("startTask should not run when only superseding");
         },
         completeTask: async () => {
-          calls.push("complete");
           throw new Error("completeTask should not run for superseded tasks");
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [currentTask],
         markSuperseded: async (taskId, supersededBy) => {
           calls.push(`markSuperseded:${taskId}:${supersededBy}`);
           currentTask = {
@@ -487,12 +473,71 @@ describe("RunnerDaemon", () => {
       },
       schedulerService: new SchedulerService({ maxConcurrency: 2 }),
       toolsForTask: stubToolsForTask,
+      runStrategy: async () => ({ status: "succeeded" }),
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      notifications: {
+        onSuperseded: async (task, supersededBy) => {
+          supersededNotifications.push({ taskId: task.taskId, supersededBy });
+        },
+      },
+    });
+
+    await daemon.supersede("task_1", "task_2");
+
+    assert.deepEqual(calls, ["markSuperseded:task_1:task_2"]);
+    assert.deepEqual(supersededNotifications, [
+      { taskId: "task_1", supersededBy: "task_2" },
+    ]);
+  });
+
+  test("supersede does not abort a running active task and does not move it to superseded", async () => {
+    const calls: string[] = [];
+    const notifications: string[] = [];
+    let currentTask = createTask("queued");
+    let release: ((value: { status: "succeeded" }) => void) | undefined;
+    const strategyPromise = new Promise<{ status: "succeeded" }>((resolve) => {
+      release = resolve;
+    });
+    let abortFired = false;
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async (taskId) => {
+          calls.push(`start:${taskId}`);
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-30T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async (taskId, input) => {
+          calls.push(`complete:${taskId}:${input.status}`);
+          currentTask = { ...currentTask, status: input.status };
+          return currentTask;
+        },
+        revertToQueued: async () => currentTask,
+        findQueuedBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error(
+            "markSuperseded must not be called for a running task",
+          );
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
       runStrategy: async (_task, signal) => {
         signal.addEventListener("abort", () => {
-          resolveStrategy?.({
-            status: "failed",
-            errorSummary: "aborted",
-          });
+          abortFired = true;
         });
         return strategyPromise;
       },
@@ -503,31 +548,34 @@ describe("RunnerDaemon", () => {
       pollIntervalMs: 10,
       notifications: {
         onFailure: async () => {
-          calls.push("notifyFailure");
+          notifications.push("failure");
         },
-        onSuperseded: async (task, supersededBy) => {
-          supersededNotifications.push({ taskId: task.taskId, supersededBy });
+        onSuperseded: async () => {
+          notifications.push("superseded");
         },
       },
     });
 
+    // First tick: task transitions queued -> running (strategy is pending).
     await daemon.tick();
-    // Task is now running; trigger supersede.
+    // Caller passes the running task id to supersede. The new contract says:
+    // markSuperseded refuses to touch running, daemon.supersede swallows the
+    // resulting error, and the running run continues to completion.
     await daemon.supersede("task_1", "task_2");
+    // Release the strategy so runTask can drain.
+    release?.({ status: "succeeded" });
     await daemon.waitForIdle();
 
-    assert.deepEqual(supersededNotifications, [
-      { taskId: "task_1", supersededBy: "task_2" },
-    ]);
-    assert.ok(
-      calls.includes("markSuperseded:task_1:task_2"),
-      `expected markSuperseded call, got: ${calls.join(", ")}`,
-    );
     assert.equal(
-      calls.includes("notifyFailure"),
+      abortFired,
       false,
-      "supersede must not trigger the failure notifier",
+      "running strategy must not receive an abort signal",
     );
+    assert.deepEqual(calls, [
+      "start:task_1",
+      "complete:task_1:succeeded",
+    ]);
+    assert.deepEqual(notifications, []);
   });
 
   test("sweepStaleRunning recovers stale running tasks not in activeTasks", async () => {
@@ -560,7 +608,7 @@ describe("RunnerDaemon", () => {
           return { ...staleTask, status: input.status };
         },
         revertToQueued: async () => staleTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -626,7 +674,7 @@ describe("RunnerDaemon", () => {
           return { ...currentTask, status: input.status };
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -679,7 +727,7 @@ describe("RunnerDaemon", () => {
           return { ...recentTask, status: input.status };
         },
         revertToQueued: async () => recentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -727,7 +775,7 @@ describe("RunnerDaemon", () => {
           throw new Error("disk full");
         },
         revertToQueued: async () => currentTask,
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
@@ -796,7 +844,7 @@ describe("RunnerDaemon", () => {
         revertToQueued: async () => {
           throw new Error("rename across devices");
         },
-        findActiveBySource: async () => [],
+        findQueuedBySource: async () => [],
         markSuperseded: async () => {
           throw new Error("markSuperseded not exercised in this test");
         },
