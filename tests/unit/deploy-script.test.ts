@@ -30,6 +30,10 @@ interface FakeBinOptions {
   // per call, looping on the last entry once the list is exhausted.
   // Defaults to ["active"] which produces the happy path.
   systemctlIsActiveSequence?: readonly string[];
+  // Optional `npm` exit-code override keyed by the first positional argument
+  // (`ci` or `run`). Lets tests simulate `npm ci` or `npm run compile`
+  // failing without touching the rest of the fake bin layout. Defaults to 0.
+  npmExitCodes?: { ci?: number; runCompile?: number };
 }
 
 async function setupRepoRoot(opts: {
@@ -82,7 +86,15 @@ case "$1" in
 esac`,
   );
 
-  await writeFake("npm", `echo "npm $*" >> "${callLog}"; exit 0`);
+  const npmCiExit = opts.npmExitCodes?.ci ?? 0;
+  const npmRunCompileExit = opts.npmExitCodes?.runCompile ?? 0;
+  await writeFake(
+    "npm",
+    `echo "npm $*" >> "${callLog}"
+if [ "$1" = "ci" ]; then exit ${npmCiExit}; fi
+if [ "$1" = "run" ] && [ "$2" = "compile" ]; then exit ${npmRunCompileExit}; fi
+exit 0`,
+  );
   await writeFake("sudo", `echo "sudo $*" >> "${callLog}"; exit 0`);
 
   // The deploy script's post-restart verify loop calls `systemctl is-active`
@@ -182,7 +194,7 @@ describe("ops/scripts/deploy.sh", () => {
     }
   });
 
-  test("proceeds with reset/build/restart when no tasks are running", async () => {
+  test("orders stop -> reset -> npm ci -> compile -> start when no tasks are running", async () => {
     const root = await setupRepoRoot({ withRunningTask: false });
     const { binDir, callLog } = await setupFakeBin({
       headSha: "aaa",
@@ -204,12 +216,31 @@ describe("ops/scripts/deploy.sh", () => {
       );
 
       assert.equal(result.code, 0, `stderr: ${result.stderr}`);
-      const calls = await readFile(callLog, "utf8");
-      assert.match(calls, /git reset --hard bbb/);
-      assert.match(calls, /npm ci/);
-      assert.match(calls, /npm run compile/);
-      assert.match(calls, /sudo \/bin\/systemctl restart fake\.service/);
-      assert.match(calls, /systemctl is-active fake\.service/);
+      const calls = await readFile(callLog, "utf8")
+        .then((raw) => raw.split("\n").filter((line) => line.length > 0));
+
+      // The race fix is the order itself: daemon must be stopped before
+      // node_modules/dist are mutated, and only restarted afterwards.
+      const idx = (needle: RegExp) =>
+        calls.findIndex((line) => needle.test(line));
+      const stopIdx = idx(/^sudo \/bin\/systemctl stop fake\.service$/);
+      const resetIdx = idx(/^git reset --hard bbb$/);
+      const ciIdx = idx(/^npm ci/);
+      const compileIdx = idx(/^npm run compile/);
+      const startIdx = idx(/^sudo \/bin\/systemctl start fake\.service$/);
+
+      assert.ok(stopIdx >= 0, `stop missing in ${calls.join(" | ")}`);
+      assert.ok(resetIdx > stopIdx, `reset must follow stop`);
+      assert.ok(ciIdx > resetIdx, `npm ci must follow reset`);
+      assert.ok(compileIdx > ciIdx, `compile must follow npm ci`);
+      assert.ok(startIdx > compileIdx, `start must follow compile`);
+
+      // restart is no longer in the path; assert it is gone so a regression
+      // back to live `restart` over a mutating tree is caught here.
+      assert.ok(
+        !calls.some((line) => /systemctl restart/.test(line)),
+        "deploy must not call systemctl restart anymore",
+      );
       assert.match(result.stdout, /Restarted fake\.service/);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -217,7 +248,118 @@ describe("ops/scripts/deploy.sh", () => {
     }
   });
 
-  test("fails when service never reaches stable active state after restart", async () => {
+  test("waits for running task drain before stopping the service", async () => {
+    const root = await setupRepoRoot({ withRunningTask: true });
+    const { binDir, callLog } = await setupFakeBin({
+      headSha: "aaa",
+      remoteSha: "bbb",
+    });
+
+    // Drop the running task on a delay so the script's drain loop releases
+    // and proceeds. The test asserts that no `systemctl stop` ran while a
+    // task file was still present.
+    const runningTask = join(root, "var", "queue", "running", "task_test.json");
+    setTimeout(() => {
+      rm(runningTask, { force: true }).catch(() => {});
+    }, 250);
+
+    try {
+      const result = await runDeploy(
+        {
+          REPO_ROOT: root,
+          SERVICE: "fake.service",
+          RUNNER_DEPLOY_POLL_SEC: "0.1",
+          RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "10",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
+        },
+        binDir,
+      );
+
+      assert.equal(result.code, 0, `stderr: ${result.stderr}`);
+      const calls = await readFile(callLog, "utf8");
+
+      // We saw at least one drain-wait log line before stop, proving the
+      // stop did not race past a still-running task.
+      assert.match(result.stdout, /Waiting: 1 task\(s\) still running/);
+      assert.match(calls, /sudo \/bin\/systemctl stop fake\.service/);
+      assert.match(calls, /sudo \/bin\/systemctl start fake\.service/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("npm ci failure leaves service stopped and skips start", async () => {
+    const root = await setupRepoRoot({ withRunningTask: false });
+    const { binDir, callLog } = await setupFakeBin({
+      headSha: "aaa",
+      remoteSha: "bbb",
+      npmExitCodes: { ci: 7 },
+    });
+
+    try {
+      const result = await runDeploy(
+        {
+          REPO_ROOT: root,
+          SERVICE: "fake.service",
+          RUNNER_DEPLOY_POLL_SEC: "1",
+          RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "4",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
+        },
+        binDir,
+      );
+
+      assert.notEqual(result.code, 0);
+      const calls = await readFile(callLog, "utf8");
+      assert.match(calls, /sudo \/bin\/systemctl stop fake\.service/);
+      assert.doesNotMatch(calls, /npm run compile/);
+      assert.doesNotMatch(calls, /sudo \/bin\/systemctl start fake\.service/);
+      assert.match(result.stderr, /service is currently stopped/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("npm run compile failure leaves service stopped and skips start", async () => {
+    const root = await setupRepoRoot({ withRunningTask: false });
+    const { binDir, callLog } = await setupFakeBin({
+      headSha: "aaa",
+      remoteSha: "bbb",
+      npmExitCodes: { runCompile: 9 },
+    });
+
+    try {
+      const result = await runDeploy(
+        {
+          REPO_ROOT: root,
+          SERVICE: "fake.service",
+          RUNNER_DEPLOY_POLL_SEC: "1",
+          RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "4",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
+        },
+        binDir,
+      );
+
+      assert.notEqual(result.code, 0);
+      const calls = await readFile(callLog, "utf8");
+      assert.match(calls, /sudo \/bin\/systemctl stop fake\.service/);
+      assert.match(calls, /npm run compile/);
+      assert.doesNotMatch(calls, /sudo \/bin\/systemctl start fake\.service/);
+      assert.match(result.stderr, /service is currently stopped/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when service never reaches stable active state after start", async () => {
     const root = await setupRepoRoot({ withRunningTask: false });
     const { binDir, callLog } = await setupFakeBin({
       headSha: "aaa",
@@ -251,11 +393,12 @@ describe("ops/scripts/deploy.sh", () => {
       );
 
       assert.notEqual(result.code, 0);
-      assert.match(result.stderr, /did not stabilize after restart/);
+      assert.match(result.stderr, /did not stabilize after start/);
       assert.doesNotMatch(result.stdout, /Restarted fake\.service/);
 
       const calls = await readFile(callLog, "utf8");
-      assert.match(calls, /sudo \/bin\/systemctl restart fake\.service/);
+      assert.match(calls, /sudo \/bin\/systemctl stop fake\.service/);
+      assert.match(calls, /sudo \/bin\/systemctl start fake\.service/);
       assert.match(calls, /journalctl -u fake\.service -n 80 --no-pager/);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -263,7 +406,7 @@ describe("ops/scripts/deploy.sh", () => {
     }
   });
 
-  test("fails when service stays inactive after restart and emits journal tail", async () => {
+  test("fails when service stays inactive after start and emits journal tail", async () => {
     const root = await setupRepoRoot({ withRunningTask: false });
     const { binDir, callLog } = await setupFakeBin({
       headSha: "aaa",
