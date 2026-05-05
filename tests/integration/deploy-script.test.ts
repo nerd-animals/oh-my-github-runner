@@ -58,10 +58,27 @@ exit 1
 echo "$@" >> "${sudoLog}"
 `;
 
+    // Stub the post-restart verify probe; the restart-success path needs
+    // `systemctl is-active` to report `active` so the script reaches the
+    // final success message instead of failing into journalctl.
+    const systemctlStub = `#!/bin/bash
+if [ "$1" = "is-active" ]; then
+  echo "active"
+  exit 0
+fi
+exit 0
+`;
+
+    const journalctlStub = `#!/bin/bash
+exit 0
+`;
+
     for (const [name, body] of [
       ["git", gitStub],
       ["npm", npmStub],
       ["sudo", sudoStub],
+      ["systemctl", systemctlStub],
+      ["journalctl", journalctlStub],
     ] as const) {
       const path = join(binDir, name);
       await writeFile(path, body, "utf8");
@@ -74,6 +91,9 @@ echo "$@" >> "${sudoLog}"
       REPO_ROOT: root,
       SERVICE: "test.service",
       RUNNER_DEPLOY_POLL_SEC: "1",
+      RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+      RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "4",
+      RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
     };
 
     const child = spawn("bash", [DEPLOY_SCRIPT], { env });

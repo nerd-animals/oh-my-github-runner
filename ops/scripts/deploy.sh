@@ -65,4 +65,43 @@ npm run compile --silent
 }
 
 sudo /bin/systemctl restart "$SERVICE"
+
+# `systemctl restart` returns as soon as systemd accepts the request, so a
+# daemon that throws on startup leaves the unit in a Restart=always
+# crashloop while this script otherwise reports success. Poll `is-active`
+# until the state is stably `active`, or fail the deploy with a journal
+# tail so the operator can see why.
+#
+# A crashlooping unit spends most of its time in `activating` (RestartSec
+# backoff, default 5s in oh-my-github-runner.service). Requiring multiple
+# consecutive `active` samples — not just a single hit — rules out the
+# "active for a moment between crashes" blip.
+#
+# `systemctl is-active` and `journalctl -u <unit>` are read-only and the
+# ubuntu user can run them without sudo (journal access via group `adm`),
+# so this check does not require expanding the sudoers grant.
+VERIFY_INTERVAL_SEC=${RUNNER_DEPLOY_VERIFY_INTERVAL_SEC:-1}
+VERIFY_TIMEOUT_COUNT=${RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT:-15}
+VERIFY_STABLE_COUNT=${RUNNER_DEPLOY_VERIFY_STABLE_COUNT:-3}
+stable=0
+state="unknown"
+attempt=0
+while [ "$attempt" -lt "$VERIFY_TIMEOUT_COUNT" ]; do
+  sleep "$VERIFY_INTERVAL_SEC"
+  attempt=$(( attempt + 1 ))
+  state=$(systemctl is-active "$SERVICE" 2>/dev/null || true)
+  if [ "$state" = "active" ]; then
+    stable=$(( stable + 1 ))
+    [ "$stable" -ge "$VERIFY_STABLE_COUNT" ] && break
+  else
+    stable=0
+  fi
+done
+
+if [ "$stable" -lt "$VERIFY_STABLE_COUNT" ]; then
+  echo "Service did not stabilize after restart (state=$state, stable=${stable}/${VERIFY_STABLE_COUNT}, attempts=${attempt}/${VERIFY_TIMEOUT_COUNT})" >&2
+  journalctl -u "$SERVICE" -n 80 --no-pager 2>&1 || true
+  exit 1
+fi
+
 echo "Restarted $SERVICE; now at $remote."

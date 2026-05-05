@@ -26,6 +26,10 @@ const SCRIPT = resolve(
 interface FakeBinOptions {
   headSha: string;
   remoteSha: string;
+  // Sequence of `systemctl is-active` outputs. The stub prints one entry
+  // per call, looping on the last entry once the list is exhausted.
+  // Defaults to ["active"] which produces the happy path.
+  systemctlIsActiveSequence?: readonly string[];
 }
 
 async function setupRepoRoot(opts: {
@@ -80,6 +84,35 @@ esac`,
 
   await writeFake("npm", `echo "npm $*" >> "${callLog}"; exit 0`);
   await writeFake("sudo", `echo "sudo $*" >> "${callLog}"; exit 0`);
+
+  // The deploy script's post-restart verify loop calls `systemctl is-active`
+  // (no sudo) and falls back to `journalctl -u <unit>` on failure. Stubs
+  // intercept both so the unit test never touches the real systemd.
+  const sequence = opts.systemctlIsActiveSequence ?? ["active"];
+  const stateFile = join(binDir, "is-active.idx");
+  await writeFile(stateFile, "0", "utf8");
+  const sequenceLiteral = sequence.map((s) => `"${s}"`).join(" ");
+  await writeFake(
+    "systemctl",
+    `echo "systemctl $*" >> "${callLog}"
+if [ "$1" = "is-active" ]; then
+  states=(${sequenceLiteral})
+  idx=$(cat "${stateFile}")
+  last=$(( \${#states[@]} - 1 ))
+  if [ "$idx" -gt "$last" ]; then idx=$last; fi
+  echo "\${states[$idx]}"
+  next=$(( idx + 1 ))
+  echo "$next" > "${stateFile}"
+  [ "\${states[$idx]}" = "active" ] && exit 0 || exit 3
+fi
+exit 0`,
+  );
+  await writeFake(
+    "journalctl",
+    `echo "journalctl $*" >> "${callLog}"
+echo "(stub journal output)"
+exit 0`,
+  );
 
   return { binDir, callLog };
 }
@@ -163,6 +196,9 @@ describe("ops/scripts/deploy.sh", () => {
           SERVICE: "fake.service",
           RUNNER_DEPLOY_POLL_SEC: "1",
           RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "10",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
         },
         binDir,
       );
@@ -173,6 +209,88 @@ describe("ops/scripts/deploy.sh", () => {
       assert.match(calls, /npm ci/);
       assert.match(calls, /npm run compile/);
       assert.match(calls, /sudo \/bin\/systemctl restart fake\.service/);
+      assert.match(calls, /systemctl is-active fake\.service/);
+      assert.match(result.stdout, /Restarted fake\.service/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when service never reaches stable active state after restart", async () => {
+    const root = await setupRepoRoot({ withRunningTask: false });
+    const { binDir, callLog } = await setupFakeBin({
+      headSha: "aaa",
+      remoteSha: "bbb",
+      // Mimic a Restart=always crashloop: alternating activating/active.
+      // Never enough consecutive `active` to reach VERIFY_STABLE_COUNT=3.
+      systemctlIsActiveSequence: [
+        "activating",
+        "active",
+        "activating",
+        "activating",
+        "active",
+        "activating",
+        "activating",
+        "activating",
+      ],
+    });
+
+    try {
+      const result = await runDeploy(
+        {
+          REPO_ROOT: root,
+          SERVICE: "fake.service",
+          RUNNER_DEPLOY_POLL_SEC: "1",
+          RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "8",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "3",
+        },
+        binDir,
+      );
+
+      assert.notEqual(result.code, 0);
+      assert.match(result.stderr, /did not stabilize after restart/);
+      assert.doesNotMatch(result.stdout, /Restarted fake\.service/);
+
+      const calls = await readFile(callLog, "utf8");
+      assert.match(calls, /sudo \/bin\/systemctl restart fake\.service/);
+      assert.match(calls, /journalctl -u fake\.service -n 80 --no-pager/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(binDir, { recursive: true, force: true });
+    }
+  });
+
+  test("fails when service stays inactive after restart and emits journal tail", async () => {
+    const root = await setupRepoRoot({ withRunningTask: false });
+    const { binDir, callLog } = await setupFakeBin({
+      headSha: "aaa",
+      remoteSha: "bbb",
+      systemctlIsActiveSequence: ["inactive"],
+    });
+
+    try {
+      const result = await runDeploy(
+        {
+          REPO_ROOT: root,
+          SERVICE: "fake.service",
+          RUNNER_DEPLOY_POLL_SEC: "1",
+          RUNNER_DEPLOY_MAX_WAIT_SEC: "5",
+          RUNNER_DEPLOY_VERIFY_INTERVAL_SEC: "0.05",
+          RUNNER_DEPLOY_VERIFY_TIMEOUT_COUNT: "4",
+          RUNNER_DEPLOY_VERIFY_STABLE_COUNT: "2",
+        },
+        binDir,
+      );
+
+      assert.notEqual(result.code, 0);
+      assert.match(result.stderr, /state=inactive/);
+      assert.match(result.stdout, /\(stub journal output\)/);
+
+      const calls = await readFile(callLog, "utf8");
+      assert.match(calls, /journalctl -u fake\.service/);
     } finally {
       await rm(root, { recursive: true, force: true });
       await rm(binDir, { recursive: true, force: true });
