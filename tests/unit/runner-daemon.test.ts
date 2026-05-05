@@ -529,4 +529,318 @@ describe("RunnerDaemon", () => {
       "supersede must not trigger the failure notifier",
     );
   });
+
+  test("sweepStaleRunning recovers stale running tasks not in activeTasks", async () => {
+    const completeCalls: Array<{
+      taskId: string;
+      status: string;
+      errorSummary?: string;
+    }> = [];
+    const warnings: string[] = [];
+    const staleTask: TaskRecord = {
+      ...createTask("running"),
+      taskId: "task_stale_1",
+      startedAt: "2026-04-30T00:00:00.000Z",
+    };
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => staleTask,
+        listTasks: async () => [staleTask],
+        getTask: async () => staleTask,
+        startTask: async () => staleTask,
+        completeTask: async (taskId, input) => {
+          completeCalls.push({
+            taskId,
+            status: input.status,
+            ...(input.errorSummary !== undefined
+              ? { errorSummary: input.errorSummary }
+              : {}),
+          });
+          return { ...staleTask, status: input.status };
+        },
+        revertToQueued: async () => staleTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => ({ status: "succeeded" }),
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      staleRunning: { cutoffMs: 60_000 },
+      // 90s past the staleTask startedAt (2026-04-30T00:00:00) -> 30s over cutoff
+      clock: {
+        now: () => Date.parse("2026-04-30T00:01:30.000Z"),
+        warn: (message) => warnings.push(message),
+      },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.equal(completeCalls.length, 1);
+    assert.equal(completeCalls[0]?.taskId, "task_stale_1");
+    assert.equal(completeCalls[0]?.status, "failed");
+    assert.match(
+      completeCalls[0]?.errorSummary ?? "",
+      /stale running/,
+    );
+  });
+
+  test("sweepStaleRunning skips tasks present in activeTasks", async () => {
+    const completeCalls: string[] = [];
+    let release: (() => void) | undefined;
+    const strategyPromise = new Promise<{ status: "succeeded" }>((resolve) => {
+      release = () => resolve({ status: "succeeded" });
+    });
+    let currentTask: TaskRecord = {
+      ...createTask("queued"),
+      taskId: "task_active_1",
+    };
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async () => {
+          // Task transitions queued -> running with a very old startedAt to
+          // ensure cutoff would otherwise mark it stale.
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-30T00:00:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async (taskId, input) => {
+          completeCalls.push(`${taskId}:${input.status}`);
+          return { ...currentTask, status: input.status };
+        },
+        revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => strategyPromise,
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      staleRunning: { cutoffMs: 60_000 },
+      clock: { now: () => Date.parse("2026-04-30T00:10:00.000Z") },
+    });
+
+    // First tick: task is queued -> startTask moves it to running and adds it
+    // to activeTasks (strategy is pending).
+    await daemon.tick();
+    // Second tick: task is in activeTasks. listTasks returns it as running
+    // with old startedAt, but sweep must skip it.
+    await daemon.tick();
+
+    // Release strategy so the daemon can drain.
+    release?.();
+    await daemon.waitForIdle();
+
+    // The only completeTask call is the legitimate succeeded one.
+    assert.deepEqual(completeCalls, ["task_active_1:succeeded"]);
+  });
+
+  test("sweepStaleRunning skips running tasks under cutoff", async () => {
+    const completeCalls: string[] = [];
+    const recentTask: TaskRecord = {
+      ...createTask("running"),
+      taskId: "task_recent_1",
+      startedAt: "2026-04-30T00:00:30.000Z",
+    };
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => recentTask,
+        listTasks: async () => [recentTask],
+        getTask: async () => recentTask,
+        startTask: async () => recentTask,
+        completeTask: async (taskId, input) => {
+          completeCalls.push(`${taskId}:${input.status}`);
+          return { ...recentTask, status: input.status };
+        },
+        revertToQueued: async () => recentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => ({ status: "succeeded" }),
+      logStore: {
+        write: async () => {},
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      staleRunning: { cutoffMs: 60_000 },
+      // Only 45s past startedAt -> below 60s cutoff.
+      clock: { now: () => Date.parse("2026-04-30T00:01:15.000Z") },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.deepEqual(completeCalls, []);
+  });
+
+  test("daemon survives when completeTask throws and logs the failed transition", async () => {
+    const warnings: string[] = [];
+    const logCalls: Array<{ taskId: string; message: string }> = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async () => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          throw new Error("disk full");
+        },
+        revertToQueued: async () => currentTask,
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => ({ status: "succeeded" }),
+      logStore: {
+        write: async (taskId, message) => {
+          logCalls.push({ taskId, message });
+        },
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      clock: { warn: (message) => warnings.push(message) },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.ok(
+      warnings.some(
+        (m) =>
+          m.includes("completeTask failed") &&
+          m.includes("task=task_1") &&
+          m.includes("from=running") &&
+          m.includes("to=succeeded") &&
+          m.includes("disk full"),
+      ),
+      `expected completeTask failure warning, got: ${warnings.join(", ")}`,
+    );
+    assert.ok(
+      logCalls.some(
+        (c) =>
+          c.taskId === "task_1" &&
+          c.message.includes("completeTask failed") &&
+          c.message.includes("running -> succeeded"),
+      ),
+      `expected logStore write for completeTask failure, got: ${JSON.stringify(logCalls)}`,
+    );
+  });
+
+  test("daemon survives when revertToQueued throws and logs the failed transition", async () => {
+    const warnings: string[] = [];
+    const logCalls: Array<{ taskId: string; message: string }> = [];
+    let currentTask = createTask("queued");
+
+    const daemon = new RunnerDaemon({
+      queueStore: {
+        enqueue: async () => currentTask,
+        listTasks: async () => [currentTask],
+        getTask: async () => currentTask,
+        startTask: async () => {
+          currentTask = {
+            ...currentTask,
+            status: "running",
+            startedAt: "2026-04-27T00:01:00.000Z",
+          };
+          return currentTask;
+        },
+        completeTask: async () => {
+          throw new Error("completeTask should not run for rate-limited tasks");
+        },
+        revertToQueued: async () => {
+          throw new Error("rename across devices");
+        },
+        findActiveBySource: async () => [],
+        markSuperseded: async () => {
+          throw new Error("markSuperseded not exercised in this test");
+        },
+        recoverRunningTasks: async () => {},
+        pruneTerminalTasks: async () => 0,
+      },
+      schedulerService: new SchedulerService({ maxConcurrency: 2 }),
+      toolsForTask: stubToolsForTask,
+      runStrategy: async () => ({
+        status: "rate_limited",
+        toolName: "claude",
+      }),
+      logStore: {
+        write: async (taskId, message) => {
+          logCalls.push({ taskId, message });
+        },
+        cleanupExpired: async () => {},
+      },
+      pollIntervalMs: 10,
+      clock: { warn: (message) => warnings.push(message) },
+    });
+
+    await daemon.tick();
+    await daemon.waitForIdle();
+
+    assert.ok(
+      warnings.some(
+        (m) =>
+          m.includes("revertToQueued failed") &&
+          m.includes("task=task_1") &&
+          m.includes("from=running") &&
+          m.includes("to=queued") &&
+          m.includes("rename across devices"),
+      ),
+      `expected revertToQueued failure warning, got: ${warnings.join(", ")}`,
+    );
+    assert.ok(
+      logCalls.some(
+        (c) =>
+          c.taskId === "task_1" &&
+          c.message.includes("revertToQueued failed") &&
+          c.message.includes("running -> queued"),
+      ),
+      `expected logStore write for revertToQueued failure, got: ${JSON.stringify(logCalls)}`,
+    );
+  });
 });
