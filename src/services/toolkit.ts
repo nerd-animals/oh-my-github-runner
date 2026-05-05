@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import type { GitHubSourceContext } from "../domain/github.js";
+import type { CheckpointStore } from "../domain/ports/checkpoint-store.js";
 import type { GitHubClient } from "../domain/ports/github-client.js";
 import type { LogStore } from "../domain/ports/log-store.js";
 import type { WorkspaceManager } from "../domain/ports/workspace-manager.js";
@@ -28,6 +30,36 @@ export interface ToolkitFactoryOptions {
    * `cleanupArtifacts` across every declared tool on workspace dispose.
    */
   toolsForTask: (task: TaskRecord) => readonly string[];
+  /**
+   * When wired, ai.run reads from this store before calling the runner
+   * (cache hit on matching stepKey + fingerprint) and writes to it on
+   * success. Optional: leave undefined to disable caching entirely.
+   */
+  checkpointStore?: CheckpointStore;
+}
+
+/**
+ * Hash of every input that affects AI output. Used as the cache key
+ * second-level discriminator (after stepKey). A change in any of these
+ * inputs invalidates the prior cached result.
+ */
+function computeFingerprint(parts: {
+  promptText: string;
+  tool: string;
+  intensity: string | undefined;
+  allowedTools: readonly string[] | undefined;
+  disallowedTools: readonly string[] | undefined;
+  outputSchema: object | undefined;
+}): string {
+  const canonical = JSON.stringify({
+    promptText: parts.promptText,
+    tool: parts.tool,
+    intensity: parts.intensity ?? null,
+    allowedTools: parts.allowedTools ?? null,
+    disallowedTools: parts.disallowedTools ?? null,
+    outputSchema: parts.outputSchema ?? null,
+  });
+  return createHash("sha256").update(canonical).digest("hex");
 }
 
 export class ToolkitFactory {
@@ -257,6 +289,45 @@ class ToolkitImpl implements Toolkit {
         this.cachedContext,
         this.active.path,
       );
+
+      // Checkpoint cache: only active when both the strategy opted in via
+      // stepKey AND the toolkit was wired with a CheckpointStore. The
+      // fingerprint is recomputed every call so a cached entry is reused
+      // only when every input that can affect AI output matches what was
+      // saved earlier in this same task's lifecycle.
+      const checkpointStore = this.options.checkpointStore;
+      const cacheActive =
+        opts.stepKey !== undefined && checkpointStore !== undefined;
+      const fingerprint = cacheActive
+        ? computeFingerprint({
+            promptText,
+            tool: toolName,
+            intensity: opts.intensity,
+            allowedTools: opts.allowedTools,
+            disallowedTools: opts.disallowedTools,
+            outputSchema: opts.outputSchema,
+          })
+        : "";
+
+      if (
+        cacheActive &&
+        opts.stepKey !== undefined &&
+        checkpointStore !== undefined
+      ) {
+        const hit = await checkpointStore.read(this.task.taskId, opts.stepKey);
+        if (
+          hit !== undefined &&
+          hit.fingerprint === fingerprint &&
+          hit.tool === toolName
+        ) {
+          await this.options.logStore.write(
+            this.task.taskId,
+            `[ai.run] checkpoint hit step=${opts.stepKey} tool=${toolName}`,
+          );
+          return { kind: "succeeded", stdout: hit.stdout };
+        }
+      }
+
       const result = await this.options.toolRegistry.resolve(toolName).run({
         task: this.task,
         workspacePath: this.active.path,
@@ -276,6 +347,22 @@ class ToolkitImpl implements Toolkit {
         ...(this.signal !== undefined ? { signal: this.signal } : {}),
       });
       if (result.kind === "succeeded") {
+        // Cache only successful results. Failed and rate_limited responses
+        // are intentionally not persisted: a non-idempotent failure could
+        // mask a future success, and a 429 is purely transient.
+        if (
+          cacheActive &&
+          opts.stepKey !== undefined &&
+          checkpointStore !== undefined
+        ) {
+          await checkpointStore.write(this.task.taskId, {
+            stepKey: opts.stepKey,
+            fingerprint,
+            tool: toolName,
+            stdout: result.stdout,
+            succeededAt: new Date().toISOString(),
+          });
+        }
         return { kind: "succeeded", stdout: result.stdout };
       }
       if (result.kind === "rate_limited") {
