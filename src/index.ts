@@ -3,6 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { RunnerDaemon } from "./daemon/runner-daemon.js";
 import { Runtime } from "./runtime.js";
+import { FileCheckpointStore } from "./infra/checkpoint/file-checkpoint-store.js";
 import { FileQueueStore } from "./infra/queue/file-queue-store.js";
 import { FileLogStore } from "./infra/logs/file-log-store.js";
 import { SchedulerService } from "./services/scheduler-service.js";
@@ -196,6 +197,10 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     dataDir: path.join(runnerRoot, "var", "queue"),
   });
 
+  const checkpointStore = new FileCheckpointStore({
+    dataDir: path.join(runnerRoot, "var", "checkpoints"),
+  });
+
   const promptFragments = await loadPromptFragments({
     promptsDir: path.join(runnerRoot, "definitions", "prompts"),
   });
@@ -209,6 +214,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     logStore,
     promptRenderer,
     toolsForTask,
+    checkpointStore,
   });
 
   const daemon = new RunnerDaemon({
@@ -223,6 +229,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     toolsForTask,
     logStore,
     pollIntervalMs,
+    checkpointStore,
     rateLimit: {
       store: rateLimitStateStore,
       cooldownMs: rateLimitCooldownMs,
