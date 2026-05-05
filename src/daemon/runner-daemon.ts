@@ -26,7 +26,20 @@ export interface RunnerDaemonDependencies {
   rateLimit?: RateLimitDispatch;
   notifications?: TaskNotifications;
   janitor?: JanitorConfig;
+  /**
+   * Live recovery for tasks stuck in `running/` while the daemon is alive.
+   * Boot-time recovery is handled by `QueueStore.recoverRunningTasks` and
+   * is independent. Stale = on-disk `running` AND not in `activeTasks` AND
+   * `startedAt` older than `cutoffMs`. Recovered tasks are moved to
+   * `failed` (not requeued) since side effects like branch pushes or
+   * sticky comments may already have happened.
+   */
+  staleRunning?: StaleRunningConfig;
   clock?: DaemonClock;
+}
+
+export interface StaleRunningConfig {
+  cutoffMs?: number;
 }
 
 export interface RateLimitDispatch {
@@ -66,6 +79,7 @@ const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 const DEFAULT_IDLE_WARNING_INTERVAL_MS = 60 * 1000;
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_STALE_RUNNING_CUTOFF_MS = 30 * 60 * 1000;
 
 interface ActiveTask {
   promise: Promise<void>;
@@ -80,6 +94,7 @@ export class RunnerDaemon {
   private readonly idleWarningIntervalMs: number;
   private readonly retentionMs: number;
   private readonly pruneIntervalMs: number;
+  private readonly staleRunningCutoffMs: number;
   private readonly now: () => number;
   private readonly warn: (message: string) => void;
   private lastIdleWarningAt = 0;
@@ -95,6 +110,8 @@ export class RunnerDaemon {
       dependencies.janitor?.retentionMs ?? DEFAULT_RETENTION_MS;
     this.pruneIntervalMs =
       dependencies.janitor?.pruneIntervalMs ?? DEFAULT_PRUNE_INTERVAL_MS;
+    this.staleRunningCutoffMs =
+      dependencies.staleRunning?.cutoffMs ?? DEFAULT_STALE_RUNNING_CUTOFF_MS;
     this.now = dependencies.clock?.now ?? (() => Date.now());
     this.warn =
       dependencies.clock?.warn ?? ((message) => console.warn(message));
@@ -137,6 +154,7 @@ export class RunnerDaemon {
   async tick(): Promise<void> {
     await this.maybePrune(false);
     const tasks = await this.dependencies.queueStore.listTasks();
+    await this.sweepStaleRunning(tasks);
     const pausedTools = await this.loadPausedTools();
     const nextTaskIds = this.dependencies.schedulerService.selectNextTasks({
       tasks,
@@ -231,6 +249,55 @@ export class RunnerDaemon {
     }
 
     await this.waitForIdle();
+  }
+
+  private async sweepStaleRunning(tasks: TaskRecord[]): Promise<void> {
+    const now = this.now();
+    const recovered: string[] = [];
+
+    for (const task of tasks) {
+      if (task.status !== "running") {
+        continue;
+      }
+      if (this.activeTasks.has(task.taskId)) {
+        continue;
+      }
+      if (task.startedAt === undefined) {
+        continue;
+      }
+      const startedAtMs = Date.parse(task.startedAt);
+      if (Number.isNaN(startedAtMs)) {
+        continue;
+      }
+      const ageMs = now - startedAtMs;
+      if (ageMs < this.staleRunningCutoffMs) {
+        continue;
+      }
+
+      const errorSummary = `stale running: no in-memory active task (age=${ageMs}ms, startedAt=${task.startedAt})`;
+      try {
+        await this.dependencies.queueStore.completeTask(task.taskId, {
+          status: "failed",
+          errorSummary,
+        });
+        recovered.push(task.taskId);
+        console.warn(
+          `[daemon] recovered stale running task=${task.taskId} from=running to=failed startedAt=${task.startedAt} ageMs=${ageMs}`,
+        );
+      } catch (error) {
+        this.warn(
+          `[daemon] sweepStaleRunning completeTask failed task=${task.taskId} from=running to=failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    if (recovered.length > 0) {
+      console.warn(
+        `[daemon] sweepStaleRunning recovered ${recovered.length} task(s): ${recovered.join(", ")}`,
+      );
+    }
   }
 
   private async maybePrune(force: boolean): Promise<void> {
@@ -376,14 +443,44 @@ export class RunnerDaemon {
       }
     }
 
-    await this.dependencies.queueStore.completeTask(task.taskId, result);
+    try {
+      await this.dependencies.queueStore.completeTask(task.taskId, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.warn(
+        `[daemon] completeTask failed task=${task.taskId} from=running to=${result.status} operation=completeTask: ${message}`,
+      );
+      try {
+        await this.dependencies.logStore.write(
+          task.taskId,
+          `completeTask failed (running -> ${result.status}): ${message}`,
+        );
+      } catch {
+        // logStore failure is non-fatal; daemon must keep going.
+      }
+    }
   }
 
   private async handleRateLimit(
     task: TaskRecord,
     toolName: string,
   ): Promise<void> {
-    await this.dependencies.queueStore.revertToQueued(task.taskId);
+    try {
+      await this.dependencies.queueStore.revertToQueued(task.taskId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.warn(
+        `[daemon] revertToQueued failed task=${task.taskId} from=running to=queued operation=revertToQueued: ${message}`,
+      );
+      try {
+        await this.dependencies.logStore.write(
+          task.taskId,
+          `revertToQueued failed (running -> queued): ${message}`,
+        );
+      } catch {
+        // logStore failure is non-fatal; daemon must keep going.
+      }
+    }
 
     const onRateLimited = this.dependencies.notifications?.onRateLimited;
     if (onRateLimited !== undefined) {
