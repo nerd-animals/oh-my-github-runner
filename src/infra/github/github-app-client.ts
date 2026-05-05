@@ -22,6 +22,7 @@ import type {
   ReactionTarget,
 } from "../../domain/ports/github-client.js";
 import { parseBodyMentions } from "../../domain/rules/body-mentions.js";
+import { createGithubFetcher, type GithubFetcher } from "./github-fetch.js";
 import { InstallationTokenCache } from "./installation-token-cache.js";
 
 export interface GitHubAppClientOptions {
@@ -29,6 +30,14 @@ export interface GitHubAppClientOptions {
   privateKeyPath: string;
   apiBaseUrl?: string;
   installationTokenCache?: InstallationTokenCache;
+  /**
+   * Fetcher with rate-limit awareness. Production wires
+   * `createGithubFetcher({ pauseSink: rateLimitStateStore.pauseGithub })`
+   * so depleted-quota / 429 responses route into the daemon-level pause.
+   * Defaults to a plain fetch passthrough so tests and bare wiring still
+   * work without the rate-limit machinery.
+   */
+  fetcher?: GithubFetcher;
 }
 
 interface GitHubIssueResponse {
@@ -90,12 +99,14 @@ export class GitHubAppClient implements GitHubClient {
   private readonly apiBaseUrl: string;
   private readonly privateKey: string;
   private readonly installationTokenCache: InstallationTokenCache;
+  private readonly fetcher: GithubFetcher;
 
   constructor(private readonly options: GitHubAppClientOptions) {
     this.apiBaseUrl = options.apiBaseUrl ?? "https://api.github.com";
     this.privateKey = readFileSync(options.privateKeyPath, "utf8");
     this.installationTokenCache =
       options.installationTokenCache ?? new InstallationTokenCache();
+    this.fetcher = options.fetcher ?? createGithubFetcher();
   }
 
   async getSourceContext(
@@ -230,7 +241,7 @@ export class GitHubAppClient implements GitHubClient {
   }
 
   private async publicRequest<T>(pathname: string): Promise<T> {
-    const response = await fetch(`${this.apiBaseUrl}${pathname}`, {
+    const response = await this.fetcher.request(`${this.apiBaseUrl}${pathname}`, {
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "oh-my-github-runner",
@@ -504,7 +515,7 @@ export class GitHubAppClient implements GitHubClient {
     variables: Record<string, unknown>,
   ): Promise<T> {
     const token = await this.getInstallationToken(repo);
-    const response = await fetch(`${this.apiBaseUrl}/graphql`, {
+    const response = await this.fetcher.request(`${this.apiBaseUrl}/graphql`, {
       method: "POST",
       headers: {
         Accept: "application/vnd.github+json",
@@ -543,7 +554,7 @@ export class GitHubAppClient implements GitHubClient {
     body?: unknown,
   ): Promise<T> {
     const token = await this.getInstallationToken(repo);
-    const response = await fetch(`${this.apiBaseUrl}${pathname}`, {
+    const response = await this.fetcher.request(`${this.apiBaseUrl}${pathname}`, {
       method,
       headers: {
         Accept: "application/vnd.github+json",
@@ -572,7 +583,7 @@ export class GitHubAppClient implements GitHubClient {
     accept: string,
   ): Promise<string> {
     const token = await this.getInstallationToken(repo);
-    const response = await fetch(`${this.apiBaseUrl}${pathname}`, {
+    const response = await this.fetcher.request(`${this.apiBaseUrl}${pathname}`, {
       method,
       headers: {
         Accept: accept,
@@ -630,7 +641,7 @@ export class GitHubAppClient implements GitHubClient {
     pathname: string,
     jwt: string,
   ): Promise<T> {
-    const response = await fetch(`${this.apiBaseUrl}${pathname}`, {
+    const response = await this.fetcher.request(`${this.apiBaseUrl}${pathname}`, {
       method,
       headers: {
         Accept: "application/vnd.github+json",
