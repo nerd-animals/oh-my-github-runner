@@ -62,7 +62,7 @@ export interface DaemonClock {
   warn?: (message: string) => void;
 }
 
-const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 const DEFAULT_IDLE_WARNING_INTERVAL_MS = 60 * 1000;
 const DEFAULT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;

@@ -165,7 +165,7 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
   });
   const rateLimitCooldownMs = parsePositiveInt(
     process.env.RATE_LIMIT_COOLDOWN_MS,
-    60 * 60 * 1000,
+    30 * 60 * 1000,
   );
 
   const queueStore = new FileQueueStore({
@@ -351,9 +351,17 @@ export async function buildRuntimeFromEnvironment(): Promise<Runtime> {
     toolsForTask,
   });
 
+  const adminToken = process.env.ADMIN_TOKEN;
   const httpServer = createWebhookServer({
     handler: webhookHandler,
     statusProvider: runnerStatusService,
+    rateLimitAdmin: {
+      registeredTools,
+      clear: (tool) => rateLimitStateStore.clear(tool),
+      ...(adminToken !== undefined && adminToken.length > 0
+        ? { adminToken }
+        : {}),
+    },
   });
 
   return new Runtime({
