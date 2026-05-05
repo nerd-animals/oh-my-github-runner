@@ -208,20 +208,27 @@ Code runs on this VM; if you operate from a laptop you can skip it.
   in-flight tasks as failed. The daemon's `notifyTaskFailure` callback
   posts a `Task <id> failed before completion: <summary>` comment to the
   originating issue or PR. Orphaned workspaces under `var/workspaces/`
-  are not cleaned automatically in v1. Note: `deploy.sh` now waits for
-  running tasks to drain before reset/restart, so the normal push flow
-  no longer trips this path; `recoverRunningTasks` is reserved for actual
-  crashes.
+  are not cleaned automatically in v1. Note: `deploy.sh` waits briefly
+  for running tasks to drain before reset/restart and gives up on its own
+  if they don't, so the normal push flow does not trip this path;
+  `recoverRunningTasks` is reserved for actual crashes.
 - Manual deploy: `ssh ubuntu@github-runner 'bash /home/ubuntu/runner-deploy/ops/scripts/deploy.sh'` (replace the `ubuntu@github-runner` host with your VM's tailnet target if you forked)
-- Deploy waits for running tasks to drain before resetting and restarting
-  (counts files in `var/queue/running/`, polling every 5s, override via
-  `RUNNER_DEPLOY_POLL_SEC`). The wait has no internal timeout — the
-  GitHub Actions workflow `timeout-minutes` (15) is the only outer bound;
-  if the wait exceeds it, the SSH session is killed and the next push
-  retries. `queued` tasks are unaffected — they survive the restart and
-  resume from the new code. Strategy code changes follow the same flow:
-  in-flight tasks finish on the old strategy code (loaded into the running
-  process), new tasks pick up the new code after the daemon restarts.
+- Deploy waits briefly for running tasks to drain before resetting and
+  restarting (counts files in `var/queue/running/`, polling every 5s).
+  If a task is still running after `RUNNER_DEPLOY_MAX_WAIT_SEC` (default
+  120s), the deploy exits non-zero and the service is left on the old
+  SHA. The next push to `main` re-runs the workflow against the latest
+  `origin/main`, so the failed deploy is not pinned to its commit; if no
+  further push is imminent (or the change was filtered out by
+  `paths-ignore`), trigger Deploy manually via `workflow_dispatch` after
+  the in-flight task finishes. Override the cap with
+  `RUNNER_DEPLOY_MAX_WAIT_SEC` (must stay well under the workflow
+  `timeout-minutes`, currently 15) and the poll interval with
+  `RUNNER_DEPLOY_POLL_SEC`. `queued` tasks are unaffected — they survive
+  the restart and resume from the new code. Strategy code changes follow
+  the same flow: in-flight tasks finish on the old strategy code (loaded
+  into the running process), new tasks pick up the new code after the
+  daemon restarts.
 - Tweak retention for terminal tasks with `RUNNER_QUEUE_RETENTION_DAYS`
   (default 7). Files under `var/queue/{succeeded,failed,superseded}/` older
   than the cutoff are removed by the daemon at boot and every 24h.
