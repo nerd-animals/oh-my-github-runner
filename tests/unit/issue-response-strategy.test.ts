@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { GitHubSourceContext } from "../../src/domain/github.js";
-import type { RepoRef, TaskRecord } from "../../src/domain/task.js";
-import { issueCommentReplyStrategy } from "../../src/strategies/issue-comment-reply.js";
+import type { TaskRecord } from "../../src/domain/task.js";
+import { issueResponseStrategy } from "../../src/strategies/issue-response.js";
 import { COLLECT_ONLY_ALLOWED } from "../../src/strategies/_shared/tool-presets.js";
 import { ISSUE_COMMENT_REPLY_OUTPUT_SCHEMA } from "../../src/strategies/_shared/reply-actions.js";
 import type {
@@ -13,7 +13,7 @@ import type {
   Toolkit,
 } from "../../src/strategies/types.js";
 
-const task: TaskRecord = {
+const replyTask: TaskRecord = {
   taskId: "task_reply_1",
   repo: { owner: "octo", name: "repo" },
   source: { kind: "issue", number: 42 },
@@ -22,6 +22,13 @@ const task: TaskRecord = {
   priority: "normal",
   requestedBy: "alice",
   createdAt: "2026-04-30T00:00:00.000Z",
+};
+
+const initialReviewTask: TaskRecord = {
+  ...replyTask,
+  taskId: "task_review_1",
+  source: { kind: "issue", number: 7 },
+  instructionId: "issue-initial-review",
 };
 
 const issueContext: GitHubSourceContext = {
@@ -172,13 +179,13 @@ function replyEnvelope(payload?: {
   });
 }
 
-describe("issueCommentReplyStrategy", () => {
+describe("issueResponseStrategy", () => {
   test("declares codex as the only tool in policies.uses", () => {
-    assert.deepEqual(issueCommentReplyStrategy.policies.uses, { codex: true });
-    assert.equal(issueCommentReplyStrategy.policies.supersedeOnSameSource, true);
+    assert.deepEqual(issueResponseStrategy.policies.uses, { codex: true });
+    assert.equal(issueResponseStrategy.policies.supersedeOnSameSource, true);
   });
 
-  test("invokes ai.run with the reply persona, structured reply mode, collect-only permissions, and the output schema", async () => {
+  test("invokes ai.run with no persona, structured reply mode, collect-only permissions, and the output schema", async () => {
     const { tk, aiCalls, postedIssueComments, createdIssues, closedIssues } =
       makeToolkit({
         replyResult: {
@@ -187,8 +194,8 @@ describe("issueCommentReplyStrategy", () => {
         },
       });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -198,13 +205,18 @@ describe("issueCommentReplyStrategy", () => {
 
     const call = aiCalls[0]!;
     assert.equal(call.tool, undefined);
+    assert.equal(call.intensity, "high");
     assert.equal(call.allowedTools, COLLECT_ONLY_ALLOWED);
     assert.deepEqual(call.outputSchema, ISSUE_COMMENT_REPLY_OUTPUT_SCHEMA);
 
     const personaPaths = call.prompt
       .filter((f) => f.kind === "file" && f.path.startsWith("personas/"))
       .map((f) => (f.kind === "file" ? f.path : ""));
-    assert.deepEqual(personaPaths, ["personas/reply"]);
+    assert.deepEqual(
+      personaPaths,
+      [],
+      "no persona fragment should be included; envelope schema and _common/* fragments suffice",
+    );
     assert.ok(
       call.prompt.some(
         (f) => f.kind === "file" && f.path === "modes/reply-structured",
@@ -215,11 +227,38 @@ describe("issueCommentReplyStrategy", () => {
       !call.prompt.some((f) => f.kind === "file" && f.path === "modes/observe"),
       "observe mode must not be present",
     );
+    assert.ok(
+      call.prompt.some(
+        (f) => f.kind === "context" && f.key === "issue-comments",
+      ),
+      "issue-comments context must always be included (empty list for initial review)",
+    );
 
     assert.deepEqual(createdIssues, []);
     assert.deepEqual(closedIssues, []);
     assert.deepEqual(postedIssueComments, [
       { issueNumber: 42, body: "Here is the answer." },
+    ]);
+  });
+
+  test("handles initial-review instructionId identically (same Strategy instance)", async () => {
+    const { tk, aiCalls, postedIssueComments } = makeToolkit({
+      replyResult: {
+        kind: "succeeded",
+        stdout: replyEnvelope({ replyComment: "Initial review summary." }),
+      },
+    });
+
+    const result = await issueResponseStrategy.run(
+      initialReviewTask,
+      tk,
+      new AbortController().signal,
+    );
+
+    assert.deepEqual(result, { status: "succeeded" });
+    assert.equal(aiCalls.length, 1);
+    assert.deepEqual(postedIssueComments, [
+      { issueNumber: 7, body: "Initial review summary." },
     ]);
   });
 
@@ -248,8 +287,8 @@ describe("issueCommentReplyStrategy", () => {
         },
       });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -285,8 +324,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -314,8 +353,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -335,8 +374,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -366,8 +405,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -400,8 +439,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -453,8 +492,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -499,8 +538,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -519,8 +558,8 @@ describe("issueCommentReplyStrategy", () => {
       },
     });
 
-    const result = await issueCommentReplyStrategy.run(
-      task,
+    const result = await issueResponseStrategy.run(
+      replyTask,
       tk,
       new AbortController().signal,
     );
@@ -542,7 +581,7 @@ describe("issueCommentReplyStrategy", () => {
     });
 
     await assert.rejects(
-      issueCommentReplyStrategy.run(task, tk, ac.signal),
+      issueResponseStrategy.run(replyTask, tk, ac.signal),
       /aborted|abort/i,
     );
     assert.equal(aiCalls.length, 0);

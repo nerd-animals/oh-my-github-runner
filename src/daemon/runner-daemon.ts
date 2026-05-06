@@ -522,10 +522,10 @@ export class RunnerDaemon {
     // the critical-path window.
     //
     // toolNames may include several entries when a strategy fans out
-    // parallel AI calls (e.g. issue-initial-review's claude+codex personas)
-    // and more than one tool 429'd in the same run. All of them must be
-    // paused before the task goes back into queued/, otherwise the next
-    // tick will dispatch the still-unpaused tool again.
+    // parallel AI calls across multiple tools and more than one 429'd in
+    // the same run. All of them must be paused before the task goes back
+    // into queued/, otherwise the next tick will dispatch the still-
+    // unpaused tool again.
     const store = this.dependencies.rateLimit?.store;
     let pausedUntil: number | undefined;
     if (store !== undefined && toolNames.length > 0) {

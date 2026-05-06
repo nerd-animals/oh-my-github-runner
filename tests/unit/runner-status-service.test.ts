@@ -22,7 +22,7 @@ function record(
 
 const toolsByInstruction: Record<string, readonly string[]> = {
   "issue-implement": ["claude"],
-  "issue-initial-review": ["codex", "claude"],
+  "issue-initial-review": ["codex"],
   "pr-implement": ["claude"],
 };
 
