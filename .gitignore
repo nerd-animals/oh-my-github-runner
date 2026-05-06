@@ -8,3 +8,4 @@ tmp/
 var/
 *.log
 .omc/
+.claude/
