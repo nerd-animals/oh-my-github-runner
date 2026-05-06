@@ -31,10 +31,11 @@ export interface SelectNextTasksInput {
 //      this cap, two queued tasks sharing a tool got dispatched together;
 //      the first task's eventual 429 wrote a pause too late to stop the
 //      second from also hitting 429. Per-tool budget = 1.
-// Multi-tool strategies (e.g. issue-initial-review with claude + codex)
-// claim every tool they declare. Persona steps run sequentially inside a
-// task, so we cannot assume the task is using "only" one tool right now —
-// any concurrent same-strategy task could collide on either side.
+// Multi-tool strategies (none active today, but the mechanism is kept for
+// future fan-out scenarios) claim every tool they declare. Steps run
+// sequentially inside a task, so we cannot assume the task is using "only"
+// one tool right now — any concurrent same-strategy task could collide on
+// either side.
 // Same-repo mutate serialization is intentionally not enforced here: branch
 // names include a taskId suffix so concurrent mutate runs cannot collide on
 // a branch, and same-source duplicate triggers are handled by

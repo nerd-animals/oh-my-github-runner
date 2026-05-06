@@ -218,9 +218,10 @@ describe("SchedulerService", () => {
   });
 
   test("multi-tool running task claims every declared tool (#110)", () => {
-    // issue-initial-review style: declares claude + codex even though one
-    // task only runs them sequentially. A queued task using either tool
-    // must wait until the multi-tool task finishes.
+    // Regression check for the multi-tool reservation rule: a strategy that
+    // declares claude + codex (none active today, but the mechanism is kept
+    // for future fan-out) must hold both tools so a queued task using
+    // either tool waits until the multi-tool task finishes.
     const scheduler = new SchedulerService({ maxConcurrency: 2 });
 
     const toolByTask: Record<string, readonly string[]> = {

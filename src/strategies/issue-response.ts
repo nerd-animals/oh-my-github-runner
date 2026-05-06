@@ -1,7 +1,5 @@
 import { header, mapAiFailure, ok } from "./_shared/helpers.js";
-import {
-  COLLECT_ONLY_ALLOWED,
-} from "./_shared/tool-presets.js";
+import { COLLECT_ONLY_ALLOWED } from "./_shared/tool-presets.js";
 import {
   ISSUE_COMMENT_REPLY_OUTPUT_SCHEMA,
   formatFailedActionReceipt,
@@ -19,7 +17,14 @@ const TIMEOUT_MS = 1800 * 1000;
 // not strand the receipts in the task log alone.
 const SOURCE_REPLY_MAX_ATTEMPTS = 3;
 
-export const issueCommentReplyStrategy: Strategy = {
+// Single Strategy serving both `issue-initial-review` (issues.opened) and
+// `issue-comment-reply` (mention in a follow-up comment). Both flows share
+// the same shape: read-only context fetch → one AI call producing an
+// envelope (replyComment + additionalActions) → dispatch actions → post
+// the source reply with retries. The differentiation between "first look"
+// and "follow-up reply" lives in the issue context the model receives
+// (issue-comments will be empty for a freshly opened issue).
+export const issueResponseStrategy: Strategy = {
   policies: {
     uses: { codex: true },
     supersedeOnSameSource: true,
@@ -29,7 +34,7 @@ export const issueCommentReplyStrategy: Strategy = {
     if (task.source.kind !== "issue") {
       return {
         status: "failed",
-        errorSummary: "issue-comment-reply requires an issue source",
+        errorSummary: "issue-response requires an issue source",
       };
     }
 
@@ -42,7 +47,7 @@ export const issueCommentReplyStrategy: Strategy = {
     if (ctx.kind !== "issue") {
       return {
         status: "failed",
-        errorSummary: "issue-comment-reply requires issue context",
+        errorSummary: "issue-response requires issue context",
       };
     }
 
@@ -52,7 +57,6 @@ export const issueCommentReplyStrategy: Strategy = {
         { kind: "file", path: "_common/work-rules" },
         { kind: "file", path: "_common/tone" },
         { kind: "file", path: "_common/engineering-stance" },
-        { kind: "file", path: "personas/reply" },
         { kind: "literal", text: header(task, ctx) },
         { kind: "file", path: "modes/reply-structured" },
         { kind: "file", path: "_common/omgr-docs" },
@@ -138,14 +142,14 @@ export const issueCommentReplyStrategy: Strategy = {
         sourceReplyError = undefined;
         if (attempt > 1) {
           await tk.log.write(
-            `issue-comment-reply: source reply posted on attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS}`,
+            `issue-response: source reply posted on attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS}`,
           );
         }
         break;
       } catch (error) {
         sourceReplyError = error;
         await tk.log.write(
-          `issue-comment-reply: source reply attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS} failed: ${
+          `issue-response: source reply attempt ${attempt}/${SOURCE_REPLY_MAX_ATTEMPTS} failed: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -157,11 +161,11 @@ export const issueCommentReplyStrategy: Strategy = {
       // the intended reply body (with receipts) to the task log so the
       // owner can recover the would-have-been-posted reply manually.
       await tk.log.write(
-        `issue-comment-reply: giving up after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts; intended reply body follows so executed side effects are not silently lost:\n${finalReply}`,
+        `issue-response: giving up after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts; intended reply body follows so executed side effects are not silently lost:\n${finalReply}`,
       );
       return {
         status: "failed",
-        errorSummary: `issue-comment-reply: failed to post source reply after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts: ${
+        errorSummary: `issue-response: failed to post source reply after ${SOURCE_REPLY_MAX_ATTEMPTS} attempts: ${
           sourceReplyError instanceof Error
             ? sourceReplyError.message
             : String(sourceReplyError)
