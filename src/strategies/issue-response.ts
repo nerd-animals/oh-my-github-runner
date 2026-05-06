@@ -65,6 +65,7 @@ export const issueResponseStrategy: Strategy = {
         { kind: "context", key: "linked-refs" },
         { kind: "user", text: task.additionalInstructions ?? "" },
       ],
+      intensity: "high",
       allowedTools: COLLECT_ONLY_ALLOWED,
       timeoutMs: TIMEOUT_MS,
       outputSchema: ISSUE_COMMENT_REPLY_OUTPUT_SCHEMA,

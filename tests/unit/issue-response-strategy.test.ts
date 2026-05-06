@@ -205,6 +205,7 @@ describe("issueResponseStrategy", () => {
 
     const call = aiCalls[0]!;
     assert.equal(call.tool, undefined);
+    assert.equal(call.intensity, "high");
     assert.equal(call.allowedTools, COLLECT_ONLY_ALLOWED);
     assert.deepEqual(call.outputSchema, ISSUE_COMMENT_REPLY_OUTPUT_SCHEMA);
 
