@@ -1,0 +1,148 @@
+name: test-claude-runner
+
+# Manual smoke test for the self-hosted Actions runner + claude-code-action setup
+# discussed in issue #156. Trigger via the Actions tab → "Run workflow".
+#
+# Prerequisites (one-time, on the VM):
+#   - Runner registered with labels: self-hosted,claude
+#   - claude + codex CLIs installed globally on the runner host
+#   - One-time login: `claude login`, `codex login`
+#   - codex-plugin-cc installed under $HOME/.claude/plugins/ (for level 4)
+
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: 'Test depth (1=env diag, 2=+claude CLI, 3=+claude-code-action, 4=+plugin slash command)'
+        type: choice
+        required: true
+        default: '1'
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+      prompt:
+        description: 'Prompt text (used at levels 2-4)'
+        required: false
+        default: 'Reply with exactly the two characters: OK'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-claude-runner
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, claude]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout this repo (for tools/ scripts)
+        uses: actions/checkout@v4
+
+      - name: Level 1 — environment diagnostics
+        shell: bash
+        run: |
+          set +e
+          echo "::group::Runner identity"
+          echo "hostname: $(hostname)"
+          echo "user: $(whoami)"
+          echo "HOME: $HOME"
+          echo "PWD: $PWD"
+          echo "::endgroup::"
+
+          echo "::group::Tool versions"
+          if command -v claude >/dev/null; then
+            echo "claude: $(command -v claude)"
+            claude --version 2>&1 | sed 's/^/  /'
+          else
+            echo "claude: NOT FOUND on PATH"
+          fi
+          if command -v codex >/dev/null; then
+            echo "codex: $(command -v codex)"
+            codex --version 2>&1 | sed 's/^/  /'
+          else
+            echo "codex: NOT FOUND on PATH"
+          fi
+          if command -v node >/dev/null; then
+            echo "node: $(node --version)"
+          else
+            echo "node: NOT FOUND on PATH"
+          fi
+          echo "::endgroup::"
+
+          echo "::group::Credentials (presence only — no contents printed)"
+          [ -f "$HOME/.claude/credentials" ]   && echo "claude credentials: present" || echo "claude credentials: MISSING"
+          [ -f "$HOME/.claude/.credentials.json" ] && echo "claude .credentials.json: present" || true
+          [ -f "$HOME/.codex/auth.json" ]      && echo "codex auth.json: present"   || echo "codex auth.json: MISSING"
+          echo "::endgroup::"
+
+          echo "::group::Plugins"
+          if [ -d "$HOME/.claude/plugins" ]; then
+            ls -la "$HOME/.claude/plugins/"
+          else
+            echo "no $HOME/.claude/plugins directory"
+          fi
+          echo "::endgroup::"
+
+          echo "::group::Session/log directory recon (so post-run observation knows where to look)"
+          for d in "$HOME/.claude/projects" "$HOME/.claude/sessions" "$HOME/.claude/logs" \
+                   "$HOME/.codex/sessions" "$HOME/.codex/history" "$HOME/.codex/log" "$HOME/.codex/logs"; do
+            if [ -d "$d" ]; then
+              echo "[$d]"
+              ls -la "$d" | head -10
+            else
+              echo "[$d] (absent)"
+            fi
+          done
+          echo "::endgroup::"
+
+          echo "::group::Runner hook env"
+          env | grep -E '^(ACTIONS_RUNNER|RUNNER_|GITHUB_)' | sort || true
+          echo "::endgroup::"
+
+          echo "::group::Pause-state files"
+          ls -la /var/lib/runner-state/ 2>/dev/null || echo "no /var/lib/runner-state (expected on first run)"
+          echo "::endgroup::"
+
+      - name: Pre-run codex usage marker
+        if: ${{ inputs.level >= '2' }}
+        shell: bash
+        run: bash tools/codex-usage-log.sh mark
+
+      - name: Level 2 — claude CLI direct (one-shot)
+        if: ${{ inputs.level >= '2' }}
+        shell: bash
+        run: |
+          set -e
+          echo "Running: claude -p ..."
+          # -p / --print: non-interactive one-shot mode. Exits after the answer.
+          claude -p "${{ inputs.prompt }}"
+
+      # NOTE: input names below need verification against the latest action.yml.
+      # The issue #156 verification TODO calls out: prompt vs prompt_file,
+      # system_prompt_file, mcp_config, allowed_tools, claude_args, model.
+      # Start with the minimum viable invocation and expand once that works.
+      - name: Level 3 — claude-code-action minimal
+        if: ${{ inputs.level >= '3' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: ${{ inputs.prompt }}
+
+      - name: Level 4 — claude-code-action with codex plugin slash command
+        if: ${{ inputs.level == '4' }}
+        uses: anthropics/claude-code-action@v1
+        with:
+          prompt: |
+            Invoke the slash command `/codex:review` with the input below and
+            return only the codex response verbatim.
+
+            Input: ${{ inputs.prompt }}
+          allowed_tools: SlashCommand(/codex:review)
+
+      - name: Post-run codex usage report
+        if: ${{ always() && inputs.level >= '2' }}
+        shell: bash
+        run: bash tools/codex-usage-log.sh report
